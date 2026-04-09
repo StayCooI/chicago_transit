@@ -243,17 +243,33 @@ def download_official_gtfs() -> None:
         output_path.write_bytes(response.read())
 
 
+def ensure_gtfs_extracted() -> str:
+    if (DATA_DIR / "routes.txt").exists():
+        return "used existing local GTFS text files"
+    
+    official_zip = OTP_INPUT_DIR / "cta-official.gtfs.zip"
+    if not official_zip.exists():
+        print("GTFS data missing. Downloading from official CTA source...")
+        download_official_gtfs()
+        
+    print("Extracting GTFS files...")
+    with zipfile.ZipFile(official_zip, "r") as zip_ref:
+        zip_ref.extractall(DATA_DIR)
+    return "extracted official GTFS data"
+
+
 def main() -> int:
     ensure_dirs()
     boundary_geojson, boundary_geometry = build_boundary_asset()
-    build_rail_assets(boundary_geometry)
-    build_local_gtfs_zip()
 
     try:
-        download_official_gtfs()
-        gtfs_status = "downloaded official GTFS"
-    except Exception:
-        gtfs_status = "used local GTFS zip fallback"
+        gtfs_status = ensure_gtfs_extracted()
+    except Exception as e:
+        print(f"Failed to setup GTFS: {e}")
+        return 1
+
+    build_rail_assets(boundary_geometry)
+    build_local_gtfs_zip()
 
     print(f"Boundary bbox: {shape(boundary_geojson['features'][0]['geometry']).bounds}")
     print(f"Assets written to {ASSETS_DIR}")
