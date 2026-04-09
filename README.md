@@ -12,33 +12,23 @@ FastAPI web app + OpenTripPlanner orchestration for routing inside Chicago with 
 
 ## Quick Start
 
-Cach chay chung cho ca macOS va Windows:
+Nếu bạn vừa tải (clone) dự án này từ GitHub về, máy bạn sẽ chưa có các file dữ liệu khổng lồ (bản đồ, GTFS, OpenTripPlanner) do chúng đã được loại trừ để tối ưu dung lượng GitHub. Bạn chỉ làm các bước sau để tự động tải dữ liệu:
 
-```bash
-python run.py
-```
-
-Tat he thong:
-
-```bash
-python run.py stop
-```
-
-Neu may ban khong co lenh `python`, dung `python3 run.py` tren macOS hoac `py run.py` tren Windows. Van la cung mot file `run.py`.
-
-1. Install Python deps:
+1. Cài đặt các thư viện Python cần thiết:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-2. Chay lan dau, de script tu tai du lieu va build graph:
+2. Chạy thiết lập lần đầu (Hệ thống sẽ TỰ ĐỘNG tải OTP, tải bản đồ Chicago OSM, tải dữ liệu tàu CTA và biên dịch bản đồ giao thông cho bạn - cần Internet và mất vài phút):
 
 ```bash
 python run.py setup
 ```
 
-3. Bat he thong:
+Sau khi hoàn tất cài đặt, lệnh khởi động/tắt hằng ngày chung cho cả macOS và Windows:
+
+3. Bật hệ thống:
 
 ```bash
 python run.py
