@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.request
+import webbrowser
+from pathlib import Path
+
+
+ROOT_DIR = Path(__file__).resolve().parent
+OTP_DIR = ROOT_DIR / "otp"
+OTP_INPUT_DIR = OTP_DIR / "input"
+OTP_RUNTIME_DIR = OTP_DIR / "runtime"
+ASSETS_SCRIPT = ROOT_DIR / "scripts" / "prepare_assets.py"
+OTP_VERSION = os.getenv("OTP_VERSION", "2.7.0")
+OTP_JAR = OTP_DIR / f"otp-shaded-{OTP_VERSION}.jar"
+OTP_DOWNLOAD_URL = f"https://repo1.maven.org/maven2/org/opentripplanner/otp-shaded/{OTP_VERSION}/otp-shaded-{OTP_VERSION}.jar"
+OSM_FILE = OTP_RUNTIME_DIR / "chicago.osm.pbf"
+OSM_DOWNLOAD_URL = "https://download.bbbike.org/osm/bbbike/Chicago/Chicago.osm.pbf"
+OTP_GRAPH = OTP_RUNTIME_DIR / "graph.obj"
+OTP_GTFS_RUNTIME = OTP_RUNTIME_DIR / "cta.gtfs.zip"
+APP_LOG = OTP_RUNTIME_DIR / "app.log"
+OTP_LOG = OTP_RUNTIME_DIR / "otp.log"
+APP_PID = OTP_RUNTIME_DIR / "app.pid"
+OTP_PID = OTP_RUNTIME_DIR / "otp.pid"
+OTP_PORT = int(os.getenv("OTP_PORT", "8080"))
+APP_PORT = int(os.getenv("PORT", "8000"))
+APP_URL = f"http://127.0.0.1:{APP_PORT}"
+OTP_URL = f"http://127.0.0.1:{OTP_PORT}/graphiql"
+APP_REQUIRED_MODULES = {
+    "fastapi": "fastapi",
+    "uvicorn": "uvicorn",
+    "httpx": "httpx",
+    "shapely": "shapely",
+    "polyline": "polyline",
+    "pyshp": "shapefile",
+}
+
+
+def is_windows() -> bool:
+    return os.name == "nt"
+
+
+def run_command(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+    subprocess.run(command, cwd=cwd or ROOT_DIR, env=env, check=True)
+
+
+def download_file(url: str, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(url) as response, destination.open("wb") as output:
+        shutil.copyfileobj(response, output)
+
+
+def http_ok(url: str, timeout: float = 2.0) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            return 200 <= getattr(response, "status", 200) < 400
+    except Exception:
+        return False
+
+
+def wait_for_url(url: str, timeout_sec: int) -> bool:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        if http_ok(url):
+            return True
+        time.sleep(1)
+    return False
+
+
+def write_pid(path: Path, pid: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(pid), encoding="utf-8")
+
+
+def read_pid(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+
+
+def process_running(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        if is_windows():
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return str(pid) in result.stdout
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def terminate_process(pid_file: Path) -> None:
+    pid = read_pid(pid_file)
+    if not process_running(pid):
+        if pid_file.exists():
+            pid_file.unlink()
+        return
+
+    if is_windows():
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False)
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    time.sleep(1)
+    if pid_file.exists():
+        pid_file.unlink()
+
+
+def start_background(command: list[str], log_path: Path, pid_path: Path, *, env: dict[str, str] | None = None) -> int:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_handle = log_path.open("w", encoding="utf-8")
+    kwargs: dict[str, object] = {
+        "cwd": str(ROOT_DIR),
+        "stdin": subprocess.DEVNULL,
+        "stdout": log_handle,
+        "stderr": subprocess.STDOUT,
+        "env": env or os.environ.copy(),
+        "close_fds": True,
+    }
+    if is_windows():
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    else:
+        kwargs["start_new_session"] = True
+
+    process = subprocess.Popen(command, **kwargs)
+    write_pid(pid_path, process.pid)
+    return process.pid
+
+
+def tail_file(path: Path, *, lines: int = 20) -> str:
+    if not path.exists():
+        return ""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    parts = text.splitlines()
+    return "\n".join(parts[-lines:])
+
+
+def ensure_python_requirements() -> None:
+    missing = [name for name, module in APP_REQUIRED_MODULES.items() if importlib.util.find_spec(module) is None]
+    if missing:
+        package_list = ", ".join(missing)
+        raise RuntimeError(
+            "Missing Python packages for the web app: "
+            f"{package_list}. Run `{Path(sys.executable).name} -m pip install -r requirements.txt` first."
+        )
+
+
+def ensure_assets() -> None:
+    if not ASSETS_SCRIPT.exists():
+        raise FileNotFoundError(f"Missing {ASSETS_SCRIPT}")
+    run_command([sys.executable, str(ASSETS_SCRIPT)])
+
+
+def ensure_otp_jar(force: bool = False) -> None:
+    if OTP_JAR.exists() and not force:
+        return
+    print(f"Downloading OTP {OTP_VERSION} ...")
+    download_file(OTP_DOWNLOAD_URL, OTP_JAR)
+
+
+def ensure_osm(force: bool = False) -> None:
+    if OSM_FILE.exists() and not force:
+        return
+    print("Downloading Chicago OSM extract ...")
+    download_file(OSM_DOWNLOAD_URL, OSM_FILE)
+
+
+def pick_gtfs_source() -> Path:
+    official = OTP_INPUT_DIR / "cta-official.gtfs.zip"
+    local = OTP_INPUT_DIR / "cta-local.gtfs.zip"
+    if official.exists():
+        return official
+    if local.exists():
+        return local
+    raise FileNotFoundError("Missing GTFS zip. Run `python run.py setup` first.")
+
+
+def build_graph(force: bool = False) -> None:
+    if OTP_GRAPH.exists() and not force:
+        return
+    if not shutil.which("java"):
+        raise RuntimeError("Java was not found in PATH.")
+
+    OTP_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    gtfs_source = pick_gtfs_source()
+    shutil.copyfile(gtfs_source, OTP_GTFS_RUNTIME)
+
+    command = [
+        "java",
+        "-Xmx6G",
+        "-jar",
+        str(OTP_JAR),
+        "--build",
+        "--save",
+        str(OTP_RUNTIME_DIR),
+    ]
+    print("Building OTP graph ...")
+    run_command(command)
+
+
+def setup(force_download: bool = False, rebuild_graph: bool = False) -> None:
+    ensure_assets()
+    ensure_otp_jar(force=force_download)
+    ensure_osm(force=force_download)
+    build_graph(force=rebuild_graph)
+
+
+def start() -> None:
+    if not OTP_GRAPH.exists():
+        raise RuntimeError("Missing graph.obj. Run `python run.py setup` first.")
+
+    if not http_ok(OTP_URL):
+        if not shutil.which("java"):
+            raise RuntimeError("Java was not found in PATH.")
+        print("Starting OTP ...")
+        start_background(
+            [
+                "java",
+                "-Xmx4G",
+                "-jar",
+                str(OTP_JAR),
+                "--load",
+                "--port",
+                str(OTP_PORT),
+                str(OTP_RUNTIME_DIR),
+            ],
+            OTP_LOG,
+            OTP_PID,
+        )
+        if not wait_for_url(OTP_URL, 90):
+            otp_tail = tail_file(OTP_LOG)
+            detail = f"\n\nLast OTP log lines:\n{otp_tail}" if otp_tail else ""
+            raise RuntimeError(f"OTP failed to start. Check {OTP_LOG}.{detail}")
+
+    if not http_ok(f"{APP_URL}/api/meta/boundary"):
+        ensure_python_requirements()
+        print("Starting web app ...")
+        env = os.environ.copy()
+        env["PORT"] = str(APP_PORT)
+        start_background([sys.executable, "server.py"], APP_LOG, APP_PID, env=env)
+        if not wait_for_url(f"{APP_URL}/api/meta/boundary", 30):
+            app_tail = tail_file(APP_LOG)
+            detail = f"\n\nLast app log lines:\n{app_tail}" if app_tail else ""
+            raise RuntimeError(f"Web app failed to start. Check {APP_LOG}.{detail}")
+
+    print(f"Web dang chay tai: {APP_URL}")
+    try:
+        webbrowser.open(APP_URL)
+    except Exception:
+        pass
+
+
+def stop() -> None:
+    terminate_process(APP_PID)
+    terminate_process(OTP_PID)
+    print("Da tat OTP va web app.")
+
+
+def status() -> None:
+    print(f"OTP: {'up' if http_ok(OTP_URL) else 'down'} ({OTP_URL})")
+    print(f"APP: {'up' if http_ok(f'{APP_URL}/api/meta/boundary') else 'down'} ({APP_URL})")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Cross-platform launcher for the Chicago route planner.")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="start",
+        choices=["start", "stop", "status", "setup", "build-graph"],
+    )
+    parser.add_argument("--force-download", action="store_true", help="Re-download OTP and OSM files.")
+    parser.add_argument("--rebuild-graph", action="store_true", help="Force rebuilding graph.obj.")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        if args.command == "start":
+            start()
+        elif args.command == "stop":
+            stop()
+        elif args.command == "status":
+            status()
+        elif args.command == "setup":
+            setup(force_download=args.force_download, rebuild_graph=args.rebuild_graph)
+        elif args.command == "build-graph":
+            build_graph(force=True if args.rebuild_graph else False)
+        else:
+            raise ValueError(f"Unknown command: {args.command}")
+    except Exception as exc:
+        print(f"ERROR: {exc}")
+        return 1
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
