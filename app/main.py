@@ -47,7 +47,6 @@ def create_app(
     rail_assets = rail_assets or RailAssetStore(
         settings.rail_lines_asset,
         settings.rail_stations_asset,
-        settings.park_ride_asset,
     )
     contextual_factors = contextual_factors or ContextualFactorsStore(
         settings.contextual_factors_asset,
@@ -61,7 +60,6 @@ def create_app(
         timezone_name=settings.chicago_timezone,
         otp_first_itineraries=settings.otp_first_itineraries,
         candidate_limit=settings.candidate_limit,
-        park_ride_candidate_limit=settings.park_ride_candidate_limit,
     )
 
     app = FastAPI(title="Bản đồ tìm đường Chicago", version="1.0.0")
@@ -92,7 +90,6 @@ def create_app(
         return RailMetaResponse(
             lines=rail_assets.lines,
             stations=rail_assets.stations,
-            park_ride_stations=rail_assets.park_ride_stations,
             generated_at=rail_assets.generated_at,
         )
 
@@ -109,7 +106,7 @@ def create_app(
     async def get_route(
         from_: str = Query(..., alias="from"),
         to_: str = Query(..., alias="to"),
-        profile: str = Query("walk", pattern="^(walk|car)$"),
+        profile: str = Query("walk", pattern="^walk$"),
         depart_at: str | None = Query(None),
     ) -> RouteResponse:
         origin = _parse_coordinate_pair(from_)

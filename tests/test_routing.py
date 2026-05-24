@@ -20,15 +20,10 @@ class FakeBoundary:
 class FakeRailAssets:
     generated_at = "2026-04-07T00:00:00+00:00"
     line_colors = {"Red": "#C60C30", "Blue": "#00A1DE"}
-    park_ride_stations = [{"stop_id": "40900", "stop_name": "Howard", "lat": 42.019063, "lon": -87.672892, "route_id": "Red"}]
-
     def resolve_station(self, stop_name: str, line_id: str | None = None):
         if stop_name == "Howard":
             return {"stop_id": "40900", "stop_name": "Howard", "routes": ["Red"]}
         return None
-
-    def nearest_park_ride_stations(self, lat: float, lon: float, limit: int):
-        return self.park_ride_stations[:limit]
 
 
 class FakeOTP:
@@ -38,18 +33,12 @@ class FakeOTP:
     async def plan_walk_transit(self, origin, destination, depart_at, first):
         self.calls.append(("walk", origin, destination))
         if origin == (42.019063, -87.672892):
-            return [make_itinerary(depart_at, [make_drive_or_walk_leg("WALK", depart_at, 120, "Howard", "Howard"), make_rail_leg("Red", "Howard", "Jackson", depart_at + timedelta(minutes=2), 900)])]
-        return [make_itinerary(depart_at, [make_drive_or_walk_leg("WALK", depart_at, 300, "Origin", "Howard"), make_rail_leg("Red", "Howard", "Jackson", depart_at + timedelta(minutes=5), 1200)])]
+            return [make_itinerary(depart_at, [make_walk_leg(depart_at, 120, "Howard", "Howard"), make_rail_leg("Red", "Howard", "Jackson", depart_at + timedelta(minutes=2), 900)])]
+        return [make_itinerary(depart_at, [make_walk_leg(depart_at, 300, "Origin", "Howard"), make_rail_leg("Red", "Howard", "Jackson", depart_at + timedelta(minutes=5), 1200)])]
 
     async def plan_walk_direct(self, origin, destination, depart_at, first=1):
         self.calls.append(("walk_direct", origin, destination))
-        return [make_itinerary(depart_at, [make_drive_or_walk_leg("WALK", depart_at, 4200, "Origin", "Destination")])]
-
-    async def plan_drive_direct(self, origin, destination, depart_at, first=1):
-        self.calls.append(("car", origin, destination))
-        if destination == (42.019063, -87.672892):
-            return [make_itinerary(depart_at, [make_drive_or_walk_leg("CAR", depart_at, 600, "Origin", "Howard")])]
-        return [make_itinerary(depart_at, [make_drive_or_walk_leg("CAR", depart_at, 3600, "Origin", "Destination")])]
+        return [make_itinerary(depart_at, [make_walk_leg(depart_at, 4200, "Origin", "Destination")])]
 
 
 def make_itinerary(start: datetime, legs: list[dict]):
@@ -61,10 +50,10 @@ def make_itinerary(start: datetime, legs: list[dict]):
     return {"start": start, "end": current, "duration": int((current - start).total_seconds()), "legs": legs}
 
 
-def make_drive_or_walk_leg(mode: str, start: datetime, duration_sec: int, from_name: str, to_name: str):
+def make_walk_leg(start: datetime, duration_sec: int, from_name: str, to_name: str):
     end = start + timedelta(seconds=duration_sec)
     return {
-        "mode": mode,
+        "mode": "WALK",
         "duration": duration_sec,
         "from": {
             "name": from_name,
@@ -147,22 +136,7 @@ def build_planner() -> RoutePlanner:
         timezone_name="America/Chicago",
         otp_first_itineraries=3,
         candidate_limit=3,
-        park_ride_candidate_limit=3,
     )
-
-
-def test_walk_profile_has_no_drive_segments():
-    planner = build_planner()
-    result = asyncio.run(planner.plan((41.88, -87.63), (41.79, -87.6), "walk", datetime(2026, 4, 7, 8, 0, tzinfo=TZ)))
-    assert result.summary.selected_strategy == "walk_rail"
-    assert all(segment.kind != "drive" for segment in result.segments)
-
-
-def test_car_profile_prefers_park_and_ride_when_faster():
-    planner = build_planner()
-    result = asyncio.run(planner.plan((41.88, -87.63), (41.79, -87.6), "car", datetime(2026, 4, 7, 8, 0, tzinfo=TZ)))
-    assert result.summary.selected_strategy == "car_park_rail"
-    assert result.summary.park_ride_station == "Howard"
 
 
 def test_outside_city_points_raise_value_error():
@@ -182,7 +156,7 @@ class NoTransitOTP(FakeOTP):
 
     async def plan_walk_direct(self, origin, destination, depart_at, first=1):
         self.calls.append(("walk_direct", origin, destination))
-        return [make_itinerary(depart_at, [make_drive_or_walk_leg("WALK", depart_at, 1800, "Origin", "Destination")])]
+        return [make_itinerary(depart_at, [make_walk_leg(depart_at, 1800, "Origin", "Destination")])]
 
 
 def test_walk_profile_falls_back_to_walk_only_when_no_transit_route():
@@ -193,7 +167,6 @@ def test_walk_profile_falls_back_to_walk_only_when_no_transit_route():
         timezone_name="America/Chicago",
         otp_first_itineraries=3,
         candidate_limit=3,
-        park_ride_candidate_limit=3,
     )
     result = asyncio.run(planner.plan((41.88, -87.63), (41.79, -87.6), "walk", datetime(2026, 4, 7, 8, 0, tzinfo=TZ)))
     assert result.summary.selected_strategy == "walk_only"
@@ -220,7 +193,6 @@ def test_optimize_stop_order_reorders_stops_for_shorter_total_time():
         timezone_name="America/Chicago",
         otp_first_itineraries=3,
         candidate_limit=3,
-        park_ride_candidate_limit=3,
     )
     result = asyncio.run(
         planner.plan(
@@ -228,7 +200,7 @@ def test_optimize_stop_order_reorders_stops_for_shorter_total_time():
             (41.87, -87.63),
             "walk",
             datetime(2026, 4, 7, 8, 0, tzinfo=TZ),
-            stops=[(41.871, -87.631), (41.88, -87.70)],
+            stops=[(41.88, -87.70), (41.871, -87.631)],
             stop_order_mode="optimize",
         )
     )
@@ -258,7 +230,6 @@ def test_blocked_segment_filters_out_intersecting_route():
         timezone_name="America/Chicago",
         otp_first_itineraries=3,
         candidate_limit=3,
-        park_ride_candidate_limit=3,
     )
     result = asyncio.run(
         planner.plan(

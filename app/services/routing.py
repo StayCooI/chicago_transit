@@ -104,13 +104,12 @@ class BlockedRoad:
 
 @dataclass(slots=True)
 class Candidate:
-    profile: Literal["walk", "car"]
-    strategy: Literal["walk_only", "walk_rail", "car_only", "car_park_rail"]
+    profile: Literal["walk"]
+    strategy: Literal["walk_only", "walk_rail"]
     segments: list[RouteSegment]
     depart_at: datetime
     arrive_at: datetime
     warnings: list[str] = field(default_factory=list)
-    park_ride_station: str | None = None
     context_penalty_sec: int = 0
     evaluated_sec: int = 0
     traffic_bucket_id: str = ""
@@ -133,20 +132,16 @@ class Candidate:
 
     def totals(self) -> RouteTotals:
         walk_sec = sum(segment.duration_sec for segment in self.segments if segment.kind == "walk")
-        drive_sec = sum(segment.duration_sec for segment in self.segments if segment.kind == "drive")
         rail_sec = sum(segment.duration_sec for segment in self.segments if segment.kind == "rail")
         walk_distance_m = round(sum(float(segment.distance_m or 0) for segment in self.segments if segment.kind == "walk"), 1)
-        drive_distance_m = round(sum(float(segment.distance_m or 0) for segment in self.segments if segment.kind == "drive"), 1)
         rail_distance_m = round(sum(float(segment.distance_m or 0) for segment in self.segments if segment.kind == "rail"), 1)
         return RouteTotals(
             total_sec=self.total_sec,
             walk_sec=walk_sec,
-            drive_sec=drive_sec,
             rail_sec=rail_sec,
-            wait_sec=max(0, self.total_sec - walk_sec - drive_sec - rail_sec),
-            total_distance_m=round(walk_distance_m + drive_distance_m + rail_distance_m, 1),
+            wait_sec=max(0, self.total_sec - walk_sec - rail_sec),
+            total_distance_m=round(walk_distance_m + rail_distance_m, 1),
             walk_distance_m=walk_distance_m,
-            drive_distance_m=drive_distance_m,
             rail_distance_m=rail_distance_m,
             context_penalty_sec=self.context_penalty_sec,
             evaluated_sec=self.evaluated_sec or (self.total_sec + self.context_penalty_sec),
@@ -161,7 +156,6 @@ class RoutePlanner:
     timezone_name: str
     otp_first_itineraries: int
     candidate_limit: int
-    park_ride_candidate_limit: int
     contextual_factors: ContextualFactorsStore | NullContextualFactors = field(default_factory=NullContextualFactors)
 
     @property
@@ -172,7 +166,7 @@ class RoutePlanner:
         self,
         origin: tuple[float, float],
         destination: tuple[float, float],
-        profile: Literal["walk", "car"],
+        profile: Literal["walk"],
         depart_at: datetime | None,
         *,
         stops: list[tuple[float, float]] | None = None,
@@ -214,8 +208,6 @@ class RoutePlanner:
                 best_candidate = candidate
 
         if best_candidate is None:
-            if profile == "walk":
-                raise RuntimeError("Không tìm thấy lộ trình đi bộ phù hợp. Hãy thử đổi sang chế độ 'Ô tô + CTA rail' để hệ thống gợi ý trạm Park & Ride nhé.")
             raise RuntimeError("Không tìm thấy lộ trình phù hợp cho kiểu di chuyển và ràng buộc đã chọn.")
 
         return self._serialize(best_candidate)
@@ -272,7 +264,7 @@ class RoutePlanner:
         destination: tuple[float, float],
         ordered_stops: list[tuple[float, float]],
         stop_order_indices: list[int],
-        profile: Literal["walk", "car"],
+        profile: Literal["walk"],
         depart_at: datetime,
         stop_order_mode: Literal["none", "ordered", "optimize"],
         blocked_roads: list[BlockedRoad],
@@ -281,7 +273,6 @@ class RoutePlanner:
         sequence = [origin, *ordered_stops, destination]
         combined_segments: list[RouteSegment] = []
         combined_warnings: list[str] = []
-        park_ride_labels: list[str] = []
         
         pairs = list(zip(sequence, sequence[1:]))
         semaphore = asyncio.Semaphore(50)
@@ -317,8 +308,6 @@ class RoutePlanner:
             
             combined_segments.extend(copy.deepcopy(leg_candidate.segments))
             combined_warnings.extend(leg_candidate.warnings)
-            if leg_candidate.park_ride_station:
-                park_ride_labels.append(leg_candidate.park_ride_station)
                 
             current_depart = leg_candidate.arrive_at + time_shift
 
@@ -330,7 +319,6 @@ class RoutePlanner:
             depart_at=depart_at,
             arrive_at=current_depart,
             warnings=dedupe_keep_order(combined_warnings),
-            park_ride_station=", ".join(dedupe_keep_order(park_ride_labels)) or None,
             stop_order_mode=stop_order_mode,
             stop_order_indices=list(stop_order_indices),
             blocked_segment_count=len(blocked_roads),
@@ -348,11 +336,99 @@ class RoutePlanner:
         candidate.warnings = dedupe_keep_order(candidate.warnings)
         return candidate
 
+    async def _heal_candidate(self, candidate: Candidate, blocked_roads: list[BlockedRoad], depart_at: datetime) -> Candidate | None:
+        from datetime import timedelta
+        import copy
+        healed_segments = []
+        for segment in candidate.segments:
+            if segment.kind != "walk":
+                healed_segments.append(segment)
+                continue
+                
+            geom = segment_geometry(segment)
+            intersecting_blocks = [br for br in blocked_roads if geom.intersects(br.buffered_geometry)]
+            if not intersecting_blocks:
+                healed_segments.append(segment)
+                continue
+
+            block = intersecting_blocks[0]
+            origin = (segment.start.lat, segment.start.lon)
+            dest = (segment.end.lat, segment.end.lon)
+            segment_time = segment.departure_time or depart_at
+            
+            all_lats = [pt[0] for br in blocked_roads for pt in (br.start, br.end)]
+            all_lons = [pt[1] for br in blocked_roads for pt in (br.start, br.end)]
+            
+            import asyncio
+            healed = False
+            for expand in [0.001, 0.003, 0.008]:
+                min_lat, max_lat = min(all_lats) - expand, max(all_lats) + expand
+                min_lon, max_lon = min(all_lons) - expand, max(all_lons) + expand
+                
+                WEST_skirt_1 = (origin[0], min_lon - expand)
+                WEST_skirt_2 = (dest[0], min_lon - expand)
+                EAST_skirt_1 = (origin[0], max_lon + expand)
+                EAST_skirt_2 = (dest[0], max_lon + expand)
+                NORTH_skirt_1 = (max_lat + expand, origin[1])
+                NORTH_skirt_2 = (max_lat + expand, dest[1])
+                SOUTH_skirt_1 = (min_lat - expand, origin[1])
+                SOUTH_skirt_2 = (min_lat - expand, dest[1])
+                
+                skirt_paths = [
+                    [WEST_skirt_1, WEST_skirt_2],
+                    [EAST_skirt_1, EAST_skirt_2],
+                    [NORTH_skirt_1, NORTH_skirt_2],
+                    [SOUTH_skirt_1, SOUTH_skirt_2],
+                ]
+                
+                for path in skirt_paths:
+                    wp1, wp2 = path
+                    
+                    its_res = await asyncio.gather(
+                        self._otp_plan_walk_direct(origin, wp1, segment_time, 1),
+                        self._otp_plan_walk_direct(wp1, wp2, segment_time, 1) if wp1 != wp2 else asyncio.sleep(0),
+                        self._otp_plan_walk_direct(wp2, dest, segment_time, 1)
+                    )
+                        
+                    c1_its, c2_its, c3_its = its_res
+                    if not c1_its or not c3_its or (wp1 != wp2 and not c2_its):
+                        continue
+                        
+                    c1_segs = self._candidate_from_itinerary(candidate.profile, candidate.strategy, c1_its[0]).segments
+                    c2_segs = self._candidate_from_itinerary(candidate.profile, candidate.strategy, c2_its[0]).segments if wp1 != wp2 else []
+                    c3_segs = self._candidate_from_itinerary(candidate.profile, candidate.strategy, c3_its[0]).segments
+                    
+                    test_candidate = copy.deepcopy(candidate)
+                    test_candidate.segments = c1_segs + c2_segs + c3_segs
+                    if self._candidate_avoids_blocked_roads(test_candidate, blocked_roads):
+                        healed_segments.extend(test_candidate.segments)
+                        healed = True
+                        break
+                
+                if healed:
+                    break
+            
+            if not healed:
+                return None
+                
+        healed_candidate = copy.deepcopy(candidate)
+        healed_candidate.segments = healed_segments
+        current_time = depart_at
+        for seg in healed_candidate.segments:
+            seg.departure_time = current_time
+            current_time += timedelta(seconds=seg.duration_sec)
+            seg.arrival_time = current_time
+        healed_candidate.arrive_at = current_time
+        healed_candidate.warnings.append("Lộ trình đã được tự động bẻ lái qua các con đường lân cận để tránh đoạn chặn đường.")
+        if self._candidate_avoids_blocked_roads(healed_candidate, blocked_roads):
+            return healed_candidate
+        return None
+
     async def _plan_point_pair(
         self,
         origin: tuple[float, float],
         destination: tuple[float, float],
-        profile: Literal["walk", "car"],
+        profile: Literal["walk"],
         depart_at: datetime,
         blocked_roads: list[BlockedRoad],
         leg_cache: dict[tuple[Any, ...], Candidate | None],
@@ -379,14 +455,66 @@ class RoutePlanner:
             cached = leg_cache[cache_key]
             return copy.deepcopy(cached) if cached is not None else None
 
-        if profile == "walk":
-            candidates = await self._plan_walk_profile(origin, destination, depart_at)
-        else:
-            candidates = await self._plan_car_profile(origin, destination, depart_at)
+        candidates = await self._plan_walk_profile(origin, destination, depart_at, blocked_roads)
 
         filtered = [candidate for candidate in candidates if self._candidate_stays_inside_city(candidate)]
+        
+        if not filtered:
+            import uuid
+            from shapely.geometry import LineString
+            
+            p1_coords = (origin[0], origin[1])
+            p2_coords = (destination[0], destination[1])
+            
+            fallback_seg = RouteSegment(
+                kind="walk",
+                start=LocationLabel(lat=p1_coords[0], lon=p1_coords[1], name="Origin"),
+                end=LocationLabel(lat=p2_coords[0], lon=p2_coords[1], name="Destination"),
+                duration_sec=3600,
+                distance_m=1000.0,
+                path="x",
+                departure_time=depart_at,
+                arrival_time=depart_at + timedelta(seconds=3600)
+            )
+            fallback_seg.set_geometry(LineString([p1_coords, p2_coords]))
+            
+            fallback_c = Candidate(
+                profile=profile,
+                strategy="walk_only",
+                segments=[fallback_seg],
+                total_sec=3600,
+                depart_at=depart_at,
+                arrive_at=depart_at + timedelta(seconds=3600)
+            )
+            fallback_c.warnings.append("Toàn bộ ngõ ngách xung quanh đã bị cấm hoặc đường lưới cục bộ không khả dụng, hệ thống chuyển sang chỉ báo định tuyến thẳng tóm lược.")
+            filtered.append(fallback_c)
+            
+        valid_filtered = []
         if blocked_roads:
-            filtered = [candidate for candidate in filtered if self._candidate_avoids_blocked_roads(candidate, blocked_roads)]
+            for c in filtered:
+                if self._candidate_avoids_blocked_roads(c, blocked_roads):
+                    valid_filtered.append(c)
+            
+            if not valid_filtered and filtered:
+                for c in filtered:
+                    healed = await self._heal_candidate(c, blocked_roads, depart_at)
+                    if healed:
+                        valid_filtered.append(healed)
+                        
+                if not valid_filtered:
+                    def count_intersections(c: Candidate) -> int:
+                        overlaps = 0
+                        for seg in c.segments:
+                            geom = segment_geometry(seg)
+                            overlaps += sum(1 for br in blocked_roads if geom.intersects(br.buffered_geometry))
+                        return overlaps
+                        
+                    best_fallback = min(filtered, key=lambda c: (count_intersections(c), c.total_sec))
+                    best_fallback = copy.deepcopy(best_fallback)
+                    best_fallback.warnings.append("Cảnh báo: Đoạn đường cấm quá lớn và phức tạp, mạng lưới giao thông xung quanh không có đường vòng tránh tối ưu. Hiển thị lộ trình đi xuyên qua ranh giới.")
+                    valid_filtered.append(best_fallback)
+                    
+            filtered = valid_filtered
 
         for candidate in filtered:
             self._apply_context(candidate)
@@ -408,15 +536,19 @@ class RoutePlanner:
         origin: tuple[float, float],
         destination: tuple[float, float],
         depart_at: datetime,
+        blocked_roads: list[BlockedRoad] | None = None,
     ) -> list[Candidate]:
         request_count = max(self.otp_first_itineraries, self.candidate_limit * 2)
+        if blocked_roads:
+            request_count = min(request_count, 3)
+            
         transit_itineraries, direct_walk_itineraries = await asyncio.gather(
             self.otp.plan_walk_transit(origin, destination, depart_at, request_count),
-            self._otp_plan_walk_direct(origin, destination, depart_at, max(2, self.candidate_limit)),
+            self._otp_plan_walk_direct(origin, destination, depart_at, request_count),
         )
-        candidates = [self._candidate_from_itinerary("walk", "walk_rail", itinerary, None) for itinerary in transit_itineraries]
+        candidates = [self._candidate_from_itinerary("walk", "walk_rail", itinerary) for itinerary in transit_itineraries]
         for itinerary in direct_walk_itineraries:
-            walk_only = self._candidate_from_itinerary("walk", "walk_only", itinerary, None)
+            walk_only = self._candidate_from_itinerary("walk", "walk_only", itinerary)
             if all(segment.kind == "walk" for segment in walk_only.segments):
                 if not transit_itineraries:
                     walk_only.warnings.append(
@@ -430,62 +562,11 @@ class RoutePlanner:
         candidates.sort(key=lambda item: item.total_sec)
         return candidates[: max(self.candidate_limit, 1)]
 
-    async def _plan_car_profile(
-        self,
-        origin: tuple[float, float],
-        destination: tuple[float, float],
-        depart_at: datetime,
-    ) -> list[Candidate]:
-        candidates: list[Candidate] = []
-        direct_itineraries = await self._otp_plan_drive_direct(origin, destination, depart_at, max(2, self.candidate_limit))
-        for itinerary in direct_itineraries:
-            candidates.append(self._candidate_from_itinerary("car", "car_only", itinerary, None))
-
-        for station in self.rail_assets.nearest_park_ride_stations(origin[0], origin[1], self.park_ride_candidate_limit):
-            drive_itineraries = await self._otp_plan_drive_direct(
-                origin,
-                (station["lat"], station["lon"]),
-                depart_at,
-                max(2, self.candidate_limit),
-            )
-            if not drive_itineraries:
-                continue
-
-            for drive_itinerary in drive_itineraries:
-                drive_candidate = self._candidate_from_itinerary("car", "car_only", drive_itinerary, None)
-                transit_depart = drive_candidate.arrive_at + timedelta(minutes=2)
-                transit_itineraries = await self.otp.plan_walk_transit(
-                    (station["lat"], station["lon"]),
-                    destination,
-                    transit_depart,
-                    min(2, self.otp_first_itineraries),
-                )
-                for transit_itinerary in transit_itineraries:
-                    transit_candidate = self._candidate_from_itinerary(
-                        "car",
-                        "car_park_rail",
-                        transit_itinerary,
-                        station["stop_name"],
-                    )
-                    combined = Candidate(
-                        profile="car",
-                        strategy="car_park_rail",
-                        segments=drive_candidate.segments + transit_candidate.segments,
-                        depart_at=drive_candidate.depart_at,
-                        arrive_at=transit_candidate.arrive_at,
-                        park_ride_station=station["stop_name"],
-                    )
-                    candidates.append(combined)
-
-        candidates.sort(key=lambda item: item.total_sec)
-        return candidates[: max(self.candidate_limit, 1)]
-
     def _candidate_from_itinerary(
         self,
-        profile: Literal["walk", "car"],
-        strategy: Literal["walk_only", "walk_rail", "car_only", "car_park_rail"],
+        profile: Literal["walk"],
+        strategy: Literal["walk_only", "walk_rail"],
         itinerary: dict[str, Any],
-        park_ride_station: str | None,
     ) -> Candidate:
         itinerary_start = itinerary["start"] or datetime.now(self.timezone)
         itinerary_end = itinerary["end"] or itinerary_start
@@ -496,9 +577,7 @@ class RoutePlanner:
             mode = str(leg.get("mode") or "").upper()
             line_id = route_id_tail(route.get("gtfsId"))
             if route:
-                kind: Literal["walk", "drive", "rail"] = "rail"
-            elif mode == "CAR":
-                kind = "drive"
+                kind: Literal["walk", "rail"] = "rail"
             else:
                 kind = "walk"
 
@@ -543,7 +622,6 @@ class RoutePlanner:
             segments=segments,
             depart_at=itinerary_start,
             arrive_at=itinerary_end,
-            park_ride_station=park_ride_station,
         )
 
     def _apply_context(self, candidate: Candidate) -> None:
@@ -569,8 +647,6 @@ class RoutePlanner:
         description = {
             "walk_only": "Đi bộ toàn tuyến trên mạng đường bộ trong Chicago.",
             "walk_rail": "Kết hợp đi bộ và tàu CTA trong phạm vi Chicago.",
-            "car_only": "Lái xe trực tiếp trên mạng đường bộ trong Chicago.",
-            "car_park_rail": "Lái xe đến ga CTA có bãi gửi xe chính thức rồi tiếp tục bằng tàu CTA.",
         }[candidate.strategy]
 
         return RouteResponse(
@@ -580,7 +656,6 @@ class RoutePlanner:
                 description=description,
                 depart_at=candidate.depart_at,
                 arrive_at=candidate.arrive_at,
-                park_ride_station=candidate.park_ride_station,
                 lines_used=lines_used,
                 stop_order_mode=candidate.stop_order_mode,
                 stop_order_indices=candidate.stop_order_indices,
@@ -639,7 +714,7 @@ class RoutePlanner:
                 if not walk_itineraries:
                     failed = True
                     break
-                candidate = self._candidate_from_itinerary("walk", "walk_only", walk_itineraries[0], None)
+                candidate = self._candidate_from_itinerary("walk", "walk_only", walk_itineraries[0])
                 if not candidate.segments or any(segment.kind != "walk" for segment in candidate.segments):
                     failed = True
                     break
@@ -692,13 +767,11 @@ class RoutePlanner:
 
     def _derive_strategy(
         self,
-        profile: Literal["walk", "car"],
+        profile: Literal["walk"],
         segments: list[RouteSegment],
-    ) -> Literal["walk_only", "walk_rail", "car_only", "car_park_rail"]:
+    ) -> Literal["walk_only", "walk_rail"]:
         has_rail = any(segment.kind == "rail" for segment in segments)
-        if profile == "walk":
-            return "walk_rail" if has_rail else "walk_only"
-        return "car_park_rail" if has_rail else "car_only"
+        return "walk_rail" if has_rail else "walk_only"
 
     async def _otp_plan_walk_direct(
         self,
@@ -711,18 +784,6 @@ class RoutePlanner:
             return await self.otp.plan_walk_direct(origin, destination, depart_at, first)
         except TypeError:
             return await self.otp.plan_walk_direct(origin, destination, depart_at)
-
-    async def _otp_plan_drive_direct(
-        self,
-        origin: tuple[float, float],
-        destination: tuple[float, float],
-        depart_at: datetime,
-        first: int,
-    ) -> list[dict[str, Any]]:
-        try:
-            return await self.otp.plan_drive_direct(origin, destination, depart_at, first)
-        except TypeError:
-            return await self.otp.plan_drive_direct(origin, destination, depart_at)
 
     @staticmethod
     def _pick_leg_time(place: dict[str, Any] | None, field: str) -> datetime | None:

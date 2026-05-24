@@ -36,7 +36,6 @@ def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
 class RailAssetStore:
     lines_path: Path
     stations_path: Path
-    park_ride_path: Path
 
     def _load_json(self, path: Path) -> Any:
         with path.open("r", encoding="utf-8") as fh:
@@ -49,10 +48,6 @@ class RailAssetStore:
     @cached_property
     def stations(self) -> list[dict[str, Any]]:
         return self._load_json(self.stations_path)
-
-    @cached_property
-    def park_ride_stations(self) -> list[dict[str, Any]]:
-        return self._load_json(self.park_ride_path)
 
     @cached_property
     def generated_at(self) -> str:
@@ -97,9 +92,4 @@ class RailAssetStore:
                     return candidate
         return candidates[0]
 
-    def nearest_park_ride_stations(self, lat: float, lon: float, limit: int) -> list[dict[str, Any]]:
-        ranked = sorted(
-            self.park_ride_stations,
-            key=lambda station: haversine_meters(lat, lon, station["lat"], station["lon"]),
-        )
-        return ranked[:limit]
+

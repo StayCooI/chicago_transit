@@ -10,7 +10,7 @@ FastAPI web app + OpenTripPlanner orchestration for routing inside Chicago with 
 - Frontend lives in `static/index.html` and talks only to backend APIs.
 - The only startup entrypoint is `run.py`, shared by macOS and Windows.
 
-## Quick Start
+## Quick Sta
 
 Nếu bạn vừa tải (clone) dự án này từ GitHub về, máy bạn sẽ chưa có các file dữ liệu khổng lồ (bản đồ, GTFS, OpenTripPlanner) do chúng đã được loại trừ để tối ưu dung lượng GitHub. Bạn chỉ làm các bước sau để tự động tải dữ liệu:
 
@@ -49,7 +49,7 @@ python run.py stop
 ## Cách Dùng
 
 - Mở `http://127.0.0.1:8000`
-- Chọn `Đi bộ + tàu CTA` hoặc `Ô tô + tàu CTA`
+- Chọn `Đi bộ + tàu CTA`
 - Chọn giờ khởi hành
 - Ở chế độ `Chọn điểm đầu/cuối`, click 2 điểm nằm trong phạm vi Chicago
 - Nếu cần nhiều điểm dừng, chuyển sang `Thêm điểm dừng`
@@ -72,7 +72,7 @@ Ví dụ `POST /api/route`:
 {
   "origin": { "lat": 41.88, "lon": -87.63 },
   "destination": { "lat": 41.79, "lon": -87.60 },
-  "profile": "car",
+  "profile": "walk",
   "depart_at": "2026-04-07T08:15",
   "stops": [
     { "lat": 41.87, "lon": -87.65 },
@@ -97,6 +97,6 @@ Ví dụ `POST /api/route`:
 - The app rejects points outside the Chicago boundary.
 - The direct City of Chicago boundary export is blocked from this environment, so `scripts/prepare_assets.py` falls back to a Census-derived Chicago boundary file while preserving the official URL in metadata.
 - `profile=walk` compares `đi bộ toàn tuyến` against `đi bộ + tàu CTA` and picks the faster valid option.
-- `profile=car` compares `car-only` against `drive to official CTA Park & Ride + CTA rail`.
+
 - Contextual scoring uses local static metadata in `data/assets/contextual_factors.json` to model average congestion by time bucket and to warn about flood-prone or snow-prone corridors.
 - `python run.py setup` accepts any `.osm.pbf` placed in `otp/runtime/`; a Chicago-only clip is best, but an Illinois extract also works because the backend rejects routes that leave the Chicago boundary.

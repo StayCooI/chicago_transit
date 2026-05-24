@@ -9,7 +9,6 @@
       "label": "Đêm khuya",
       "start_hour": 0,
       "end_hour": 6,
-      "drive_multiplier": 0.75,
       "walk_multiplier": 0.95
     },
     {
@@ -17,7 +16,6 @@
       "label": "Cao điểm sáng",
       "start_hour": 6,
       "end_hour": 10,
-      "drive_multiplier": 1.35,
       "walk_multiplier": 1.05
     },
     {
@@ -25,7 +23,6 @@
       "label": "Ban ngày",
       "start_hour": 10,
       "end_hour": 16,
-      "drive_multiplier": 1.05,
       "walk_multiplier": 1.0
     },
     {
@@ -33,7 +30,6 @@
       "label": "Cao điểm chiều",
       "start_hour": 16,
       "end_hour": 20,
-      "drive_multiplier": 1.4,
       "walk_multiplier": 1.08
     },
     {
@@ -41,182 +37,12 @@
       "label": "Tối muộn",
       "start_hour": 20,
       "end_hour": 24,
-      "drive_multiplier": 0.9,
       "walk_multiplier": 1.0
     }
   ],
   "congestion_corridors": {
     "type": "FeatureCollection",
-    "features": [
-      {
-        "type": "Feature",
-        "properties": {
-          "id": "kennedy_expy",
-          "label": "Hành lang Kennedy Expressway",
-          "mode": "drive",
-          "severity": 0.38,
-          "buffer_m": 120,
-          "active_buckets": [
-            "morning_peak",
-            "evening_peak"
-          ]
-        },
-        "geometry": {
-          "type": "LineString",
-          "coordinates": [
-            [
-              -87.806,
-              41.979
-            ],
-            [
-              -87.77,
-              41.963
-            ],
-            [
-              -87.729,
-              41.942
-            ],
-            [
-              -87.699,
-              41.918
-            ],
-            [
-              -87.672,
-              41.895
-            ],
-            [
-              -87.645,
-              41.885
-            ]
-          ]
-        }
-      },
-      {
-        "type": "Feature",
-        "properties": {
-          "id": "dan_ryan",
-          "label": "Hành lang Dan Ryan",
-          "mode": "drive",
-          "severity": 0.34,
-          "buffer_m": 120,
-          "active_buckets": [
-            "morning_peak",
-            "evening_peak"
-          ]
-        },
-        "geometry": {
-          "type": "LineString",
-          "coordinates": [
-            [
-              -87.632,
-              41.881
-            ],
-            [
-              -87.632,
-              41.852
-            ],
-            [
-              -87.631,
-              41.816
-            ],
-            [
-              -87.629,
-              41.78
-            ],
-            [
-              -87.625,
-              41.723
-            ]
-          ]
-        }
-      },
-      {
-        "type": "Feature",
-        "properties": {
-          "id": "lake_shore_drive",
-          "label": "Hành lang Lake Shore Drive",
-          "mode": "drive",
-          "severity": 0.28,
-          "buffer_m": 110,
-          "active_buckets": [
-            "midday",
-            "evening_peak",
-            "late_evening"
-          ]
-        },
-        "geometry": {
-          "type": "LineString",
-          "coordinates": [
-            [
-              -87.632,
-              41.994
-            ],
-            [
-              -87.625,
-              41.957
-            ],
-            [
-              -87.616,
-              41.92
-            ],
-            [
-              -87.616,
-              41.886
-            ],
-            [
-              -87.608,
-              41.843
-            ],
-            [
-              -87.591,
-              41.76
-            ]
-          ]
-        }
-      },
-      {
-        "type": "Feature",
-        "properties": {
-          "id": "loop_west",
-          "label": "Vòng nút Loop - West Loop",
-          "mode": "drive",
-          "severity": 0.24,
-          "buffer_m": 150,
-          "active_buckets": [
-            "morning_peak",
-            "midday",
-            "evening_peak"
-          ]
-        },
-        "geometry": {
-          "type": "Polygon",
-          "coordinates": [
-            [
-              [
-                -87.649,
-                41.892
-              ],
-              [
-                -87.621,
-                41.892
-              ],
-              [
-                -87.621,
-                41.872
-              ],
-              [
-                -87.649,
-                41.872
-              ],
-              [
-                -87.649,
-                41.892
-              ]
-            ]
-          ]
-        }
-      }
-    ]
+    "features": []
   },
   "hazard_zones": {
     "type": "FeatureCollection",

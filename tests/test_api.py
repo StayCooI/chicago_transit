@@ -33,7 +33,6 @@ class FakeBoundary:
 class FakeRailAssets:
     lines = {"type": "FeatureCollection", "metadata": {"generated_at": "2026-04-07T00:00:00+00:00"}, "features": []}
     stations = []
-    park_ride_stations = []
     generated_at = "2026-04-07T00:00:00+00:00"
 
 

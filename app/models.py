@@ -14,19 +14,17 @@ class Coordinate(BaseModel):
 class RouteTotals(BaseModel):
     total_sec: int
     walk_sec: int = 0
-    drive_sec: int = 0
     rail_sec: int = 0
     wait_sec: int = 0
     total_distance_m: float = 0
     walk_distance_m: float = 0
-    drive_distance_m: float = 0
     rail_distance_m: float = 0
     context_penalty_sec: int = 0
     evaluated_sec: int = 0
 
 
 class RouteSegment(BaseModel):
-    kind: Literal["walk", "drive", "rail"]
+    kind: Literal["walk", "rail"]
     duration_sec: int
     distance_m: float = 0
     geometry: dict[str, Any]
@@ -43,12 +41,11 @@ class RouteSegment(BaseModel):
 
 
 class RouteSummary(BaseModel):
-    profile: Literal["walk", "car"]
-    selected_strategy: Literal["walk_only", "walk_rail", "car_only", "car_park_rail"]
+    profile: Literal["walk"]
+    selected_strategy: Literal["walk_only", "walk_rail"]
     description: str
     depart_at: datetime
     arrive_at: datetime | None = None
-    park_ride_station: str | None = None
     lines_used: list[str] = Field(default_factory=list)
     stop_order_mode: Literal["none", "ordered", "optimize"] = "none"
     stop_order_indices: list[int] = Field(default_factory=list)
@@ -84,7 +81,6 @@ class BoundaryResponse(BaseModel):
 class RailMetaResponse(BaseModel):
     lines: dict[str, Any]
     stations: list[dict[str, Any]]
-    park_ride_stations: list[dict[str, Any]]
     generated_at: str
 
 
@@ -106,7 +102,7 @@ class BlockedSegmentInput(BaseModel):
 class AdvancedRouteRequest(BaseModel):
     origin: Coordinate
     destination: Coordinate
-    profile: Literal["walk", "car"] = "walk"
+    profile: Literal["walk"] = "walk"
     depart_at: datetime | None = None
     stops: list[Coordinate] = Field(default_factory=list)
     stop_order_mode: Literal["none", "ordered", "optimize"] = "none"

@@ -107,7 +107,7 @@ class ContextualFactorsStore:
             prepared.append(
                 {
                     "label": props.get("label", "Hành lang ùn tắc"),
-                    "mode": props.get("mode", "drive"),
+                    "mode": props.get("mode", "walk"),
                     "severity": float(props.get("severity", 0.2)),
                     "active_buckets": list(props.get("active_buckets", [])),
                     "geometry": geometry.buffer(meters_to_degrees(buffer_m)),
@@ -152,13 +152,11 @@ class ContextualFactorsStore:
         return self.time_profiles[0] if self.time_profiles else {
             "id": "default",
             "label": "Mặc định",
-            "drive_multiplier": 1.0,
             "walk_multiplier": 1.0,
         }
 
     def evaluate_candidate(self, candidate: Any) -> dict[str, Any]:
         profile = self.active_time_profile(candidate.depart_at)
-        drive_multiplier = float(profile.get("drive_multiplier", 1.0))
         walk_multiplier = float(profile.get("walk_multiplier", 1.0))
 
         traffic_penalty_sec = 0
@@ -168,7 +166,7 @@ class ContextualFactorsStore:
         warning_areas: set[str] = set()
 
         for segment in candidate.segments:
-            if getattr(segment, "kind", "") not in {"walk", "drive"}:
+            if getattr(segment, "kind", "") != "walk":
                 continue
             geometry = segment_geometry(segment)
             for corridor in self._prepared_corridors:
@@ -180,7 +178,7 @@ class ContextualFactorsStore:
                 ratio = overlap_ratio(geometry, corridor["geometry"])
                 if ratio <= 0:
                     continue
-                multiplier = drive_multiplier if getattr(segment, "kind", "") == "drive" else walk_multiplier
+                multiplier = walk_multiplier
                 penalty = int(round(getattr(segment, "duration_sec", 0) * ratio * corridor["severity"] * multiplier))
                 if penalty > 0:
                     traffic_penalty_sec += penalty
@@ -194,10 +192,7 @@ class ContextualFactorsStore:
                 ratio = overlap_ratio(geometry, hazard["geometry"])
                 if ratio <= 0:
                     continue
-                if getattr(segment, "kind", "") == "drive":
-                    penalty_factor = 1.2
-                else:
-                    penalty_factor = 0.8
+                penalty_factor = 0.8
                 penalty = int(round(getattr(segment, "duration_sec", 0) * ratio * hazard["severity"] * penalty_factor))
                 if penalty > 0:
                     weather_penalty_sec += penalty

@@ -51,15 +51,7 @@ class OTPClient:
         query = self._build_plan_query(origin, destination, depart_at, first, direct_modes=["WALK"], transit_modes=[])
         return await self._execute_and_parse(query)
 
-    async def plan_drive_direct(
-        self,
-        origin: tuple[float, float],
-        destination: tuple[float, float],
-        depart_at: datetime,
-        first: int = 1,
-    ) -> list[dict[str, Any]]:
-        query = self._build_plan_query(origin, destination, depart_at, first, direct_modes=["CAR"], transit_modes=[])
-        return await self._execute_and_parse(query)
+
 
     async def _execute_and_parse(self, query: str) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=self.timeout_sec) as client:

@@ -24,20 +24,7 @@ OFFICIAL_BOUNDARY_URL = "https://data.cityofchicago.org/api/views/qqq8-j68g/rows
 FALLBACK_BOUNDARY_URL = "https://raw.githubusercontent.com/generalpiston/geojson-us-city-boundaries/master/cities/il/chicago.json"
 OFFICIAL_GTFS_URL = "https://www.transitchicago.com/downloads/sch_data/google_transit.zip"
 
-PARK_RIDE_CANDIDATES = [
-    ("Blue", "Harlem (Blue - O'Hare Branch)", "Harlem"),
-    ("Brn", "Kimball", "Kimball"),
-    ("G", "Ashland/63rd", "Ashland/63rd"),
-    ("G", "Garfield (Green)", "Garfield"),
-    ("Org", "Midway", "Midway"),
-    ("Org", "Pulaski (Orange)", "Pulaski/51st"),
-    ("Org", "Kedzie (Orange)", "Kedzie"),
-    ("Org", "Western (Orange)", "Western"),
-    ("Org", "35th/Archer", "35th/Archer"),
-    ("Org", "Halsted (Orange)", "Halsted"),
-    ("Red", "Howard", "Howard"),
-    ("Pink", "54th/Cermak", "54th/Cermak"),
-]
+
 
 
 def fetch_json(url: str) -> dict[str, Any]:
@@ -202,31 +189,7 @@ def build_rail_assets(boundary_geometry) -> None:
     station_features.sort(key=lambda item: item["stop_name"])
     (ASSETS_DIR / "cta_rail_stations.json").write_text(json.dumps(station_features), encoding="utf-8")
 
-    stations_by_name = {(station["stop_name"], tuple(station["routes"])): station for station in station_features}
-    park_ride: list[dict[str, Any]] = []
-    for route_id, gtfs_stop_name, official_label in PARK_RIDE_CANDIDATES:
-        station = next(
-            (
-                item
-                for item in station_features
-                if item["stop_name"] == gtfs_stop_name and route_id in item["routes"]
-            ),
-            None,
-        )
-        if not station:
-            continue
-        park_ride.append(
-            {
-                **station,
-                "official_label": official_label,
-                "official_source": "CTA Park & Ride page",
-                "route_id": route_id,
-                "has_official_park_ride": True,
-            }
-        )
 
-    park_ride.sort(key=lambda item: item["stop_name"])
-    (ASSETS_DIR / "park_ride_stations.json").write_text(json.dumps(park_ride), encoding="utf-8")
 
 
 def build_local_gtfs_zip() -> None:
