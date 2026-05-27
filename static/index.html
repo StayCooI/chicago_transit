@@ -721,6 +721,10 @@
               <input id="blockedBufferInput" type="number" min="10" max="200" step="5" value="35" />
             </label>
             <label style="display: flex; align-items: center; gap: 8px; flex-direction: row; margin-top: 4px;">
+              <input id="autoShowAmenitiesInput" type="checkbox" style="width: auto; height: auto; margin: 0;" />
+              Tự động hiện tiện ích khi Zoom gần
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; flex-direction: row; margin-top: 4px;">
               <input id="forceCafeInput" type="checkbox" style="width: auto; height: auto; margin: 0;" />
               Hiện tất cả Quán cafe
             </label>
@@ -840,6 +844,7 @@
         stopList: document.getElementById("stopList"),
         blockedList: document.getElementById("blockedList"),
         summaryContent: document.getElementById("summaryContent"),
+        autoShowAmenitiesInput: document.getElementById("autoShowAmenitiesInput"),
         forceCafeInput: document.getElementById("forceCafeInput"),
         forceRestaurantInput: document.getElementById("forceRestaurantInput"),
         themeToggleBtn: document.getElementById("themeToggleBtn"),
@@ -1591,6 +1596,7 @@
         if (!state.map || !state.layers.cafePoi || !state.layers.restaurantPoi) return;
         const zoom = state.map.getZoom();
         
+        const autoShowAmenities = el.autoShowAmenitiesInput && el.autoShowAmenitiesInput.checked;
         const forceCafe = el.forceCafeInput && el.forceCafeInput.checked;
         const forceRestaurant = el.forceRestaurantInput && el.forceRestaurantInput.checked;
         
@@ -1601,7 +1607,7 @@
           showCafe = forceCafe;
           showRestaurant = forceRestaurant;
         } else {
-          if (zoom >= POI_ZOOM_THRESHOLD) {
+          if (autoShowAmenities && zoom >= POI_ZOOM_THRESHOLD) {
             showCafe = true;
             showRestaurant = true;
           }
@@ -1984,6 +1990,7 @@ ${queryNodes}          );
         clearRouteLayers();
         setStatus("Đã xóa toàn bộ đoạn đường cấm.", "success");
       });
+      if (el.autoShowAmenitiesInput) el.autoShowAmenitiesInput.addEventListener("change", fetchPOIs);
       el.forceCafeInput.addEventListener("change", fetchPOIs);
       el.forceRestaurantInput.addEventListener("change", fetchPOIs);
 
