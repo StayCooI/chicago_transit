@@ -12,11 +12,10 @@ from zoneinfo import ZoneInfo
 
 from shapely.geometry import LineString, Point
 
-from app.models import Coordinate, RouteContext, RouteResponse, RouteSegment, RouteSummary, RouteTotals
-from app.services.boundary import ChicagoBoundary
-from app.services.contextual_factors import ContextualFactorsStore, segment_distance_m, segment_geometry
-from app.services.otp_client import OTPClient
-from app.services.rail_assets import RailAssetStore, haversine_meters
+from backend.api.models import Coordinate, RouteContext, RouteResponse, RouteSegment, RouteSummary, RouteTotals
+from backend.api.services.boundary import ChicagoBoundary
+from backend.api.services.contextual_factors import ContextualFactorsStore, segment_distance_m, segment_geometry
+from backend.api.services.rail_assets import RailAssetStore, haversine_meters
 
 
 LINE_LABELS_VI = {
@@ -152,7 +151,6 @@ class Candidate:
 class RoutePlanner:
     boundary: ChicagoBoundary
     rail_assets: RailAssetStore
-    otp: OTPClient
     timezone_name: str
     otp_first_itineraries: int
     candidate_limit: int
@@ -181,36 +179,59 @@ class RoutePlanner:
         for point in all_points:
             if not self.boundary.contains(*point):
                 raise ValueError("Tất cả các điểm phải nằm trong ranh giới thành phố Chicago.")
-        for blocked in blocked_roads:
-            if not (self.boundary.contains(*blocked.start) and self.boundary.contains(*blocked.end)):
-                raise ValueError("Các đoạn đường cấm phải được vẽ hoàn toàn trong ranh giới Chicago.")
-
-        stop_sequences = self._build_stop_sequences(origin, stops, stop_order_mode)
-        leg_cache: dict[tuple[Any, ...], Candidate | None] = {}
-        best_candidate: Candidate | None = None
-
-        for stop_order_indices in stop_sequences:
-            ordered_stops = [stops[index] for index in stop_order_indices]
-            candidate = await self._plan_sequence(
-                origin,
-                destination,
-                ordered_stops,
-                stop_order_indices,
-                profile,
-                depart_local,
-                stop_order_mode if ordered_stops else "none",
-                blocked_roads,
-                leg_cache,
+                
+        import subprocess
+        import json
+        from pathlib import Path
+        from datetime import timedelta
+        
+        executable = str(Path(__file__).resolve().parent.parent.parent / "backend" / "router")
+        graph_file = str(Path(__file__).resolve().parent.parent.parent / "data" / "assets" / "data_graph.txt")
+        
+        input_data = f"{origin[0]} {origin[1]} {destination[0]} {destination[1]}\n"
+        input_data += f"{len(stops)}\n"
+        for stop in stops:
+            input_data += f"{stop[0]} {stop[1]}\n"
+            
+        try:
+            result = subprocess.run([executable, graph_file], input=input_data, text=True, capture_output=True, check=True)
+            output = result.stdout
+            data = json.loads(output)
+        except Exception as e:
+            raise RuntimeError(f"Lỗi khi gọi C++ router: {e}")
+            
+        if "error" in data:
+            raise RuntimeError(data["error"])
+            
+        segments = []
+        path_nodes = data.get("path", [])
+        total_dist = data.get("total_cost", 0.0)
+        
+        if path_nodes:
+            coords = [(pt["lon"], pt["lat"]) for pt in path_nodes]
+            segment = RouteSegment(
+                kind="walk",
+                distance_m=total_dist,
+                duration_sec=total_dist / 1.3,
+                geometry={"type": "LineString", "coordinates": coords},
+                instruction="Đi theo lộ trình (A* & GA) tự code bằng C++."
             )
-            if candidate is None:
-                continue
-            if best_candidate is None or candidate.evaluated_sec < best_candidate.evaluated_sec:
-                best_candidate = candidate
+            segments.append(segment)
+            
+        candidate = Candidate(
+            profile=profile,
+            strategy="walk",
+            segments=segments,
+            depart_at=depart_local,
+            arrive_at=depart_local + timedelta(seconds=total_dist / 1.3),
+            warnings=["Lộ trình được tính toán bằng thuật toán A* và GA tự code (C++)!"],
+            stop_order_mode=stop_order_mode,
+            stop_order_indices=[],
+            blocked_segment_count=len(blocked_roads)
+        )
+        self._apply_context(candidate)
 
-        if best_candidate is None:
-            raise RuntimeError("Không tìm thấy lộ trình phù hợp cho kiểu di chuyển và ràng buộc đã chọn.")
-
-        return self._serialize(best_candidate)
+        return self._serialize(candidate)
 
     def _build_stop_sequences(
         self,

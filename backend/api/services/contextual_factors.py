@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from shapely.geometry import LineString, Point, shape
 
-from app.services.rail_assets import haversine_meters
+from backend.api.services.rail_assets import haversine_meters
 
 
 def meters_to_degrees(meters: float) -> float:

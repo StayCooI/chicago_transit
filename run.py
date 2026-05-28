@@ -194,69 +194,24 @@ def pick_gtfs_source() -> Path:
     raise FileNotFoundError("Missing GTFS zip. Run `python run.py setup` first.")
 
 
-def build_graph(force: bool = False) -> None:
-    if OTP_GRAPH.exists() and not force:
-        return
-    if not shutil.which("java"):
-        raise RuntimeError("Java was not found in PATH.")
-
-    OTP_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    gtfs_source = pick_gtfs_source()
-    shutil.copyfile(gtfs_source, OTP_GTFS_RUNTIME)
-
-    command = [
-        "java",
-        "-Xmx6G",
-        "-jar",
-        str(OTP_JAR),
-        "--build",
-        "--save",
-        str(OTP_RUNTIME_DIR),
-    ]
-    print("Building OTP graph ...")
-    run_command(command)
-
+def build_cpp_backend() -> None:
+    print("Building C++ backend...")
+    run_command(["g++", "-std=c++17", "-O3", "backend/Astar.cpp", "backend/GA.cpp", "backend/main.cpp", "-o", "backend/router"])
+    if not (ROOT_DIR / "data" / "assets" / "data_graph.txt").exists():
+        print("Extracting graph data...")
+        run_command([sys.executable, "scripts/build_cpp_graph.py"])
 
 def setup(force_download: bool = False, rebuild_graph: bool = False) -> None:
     ensure_assets()
-    ensure_otp_jar(force=force_download)
-    ensure_osm(force=force_download)
-    build_graph(force=rebuild_graph)
-
+    build_cpp_backend()
 
 def start() -> None:
-    if not OTP_GRAPH.exists():
-        raise RuntimeError("Missing graph.obj. Run `python run.py setup` first.")
-
-    if not http_ok(OTP_URL):
-        if not shutil.which("java"):
-            raise RuntimeError("Java was not found in PATH.")
-        print("Starting OTP ...")
-        start_background(
-            [
-                "java",
-                "-Xmx4G",
-                "-jar",
-                str(OTP_JAR),
-                "--load",
-                "--port",
-                str(OTP_PORT),
-                str(OTP_RUNTIME_DIR),
-            ],
-            OTP_LOG,
-            OTP_PID,
-        )
-        if not wait_for_url(OTP_URL, 90):
-            otp_tail = tail_file(OTP_LOG)
-            detail = f"\n\nLast OTP log lines:\n{otp_tail}" if otp_tail else ""
-            raise RuntimeError(f"OTP failed to start. Check {OTP_LOG}.{detail}")
-
     if not http_ok(f"{APP_URL}/api/meta/boundary"):
         ensure_python_requirements()
         print("Starting web app ...")
         env = os.environ.copy()
         env["PORT"] = str(APP_PORT)
-        start_background([sys.executable, "server.py"], APP_LOG, APP_PID, env=env)
+        start_background([sys.executable, "backend/server.py"], APP_LOG, APP_PID, env=env)
         if not wait_for_url(f"{APP_URL}/api/meta/boundary", 30):
             app_tail = tail_file(APP_LOG)
             detail = f"\n\nLast app log lines:\n{app_tail}" if app_tail else ""

@@ -1,102 +1,57 @@
-# Chicago-Only Route Planner
+# Chicago Route Planner
 
-FastAPI web app + OpenTripPlanner orchestration for routing inside Chicago with CTA rail highlighted on the map.
+Ứng dụng bản đồ hướng dẫn chỉ đường khu vực Chicago, được xây dựng với cấu trúc **100% tự code thuật toán** (A* và Genetic Algorithm) bằng **C++ Backend** để đạt hiệu năng tối ưu, kết hợp với **FastAPI** phục vụ dữ liệu và giao diện web.
 
-## What Changed
+## Kiến trúc Hệ thống
 
-- `server.py` now launches the FastAPI app through `uvicorn` without shell-specific wrappers.
-- Routing is orchestrated through `app/services/routing.py`, using OTP GraphQL only.
-- Static metadata is served from generated local assets in `data/assets/`.
-- Frontend lives in `static/index.html` and talks only to backend APIs.
-- The only startup entrypoint is `run.py`, shared by macOS and Windows.
+Dự án được chia thành 2 thành phần chính:
+1. **Frontend (Giao diện Web):** Nằm trong thư mục `frontend/`. Chứa các file HTML/CSS/JS (sử dụng thư viện Leaflet.js) để hiển thị bản đồ trực quan, tiếp nhận thao tác của người dùng.
+2. **Backend (API & Thuật toán):**
+   - **Lõi C++ (`backend/algorithms/`):** Tự triển khai thuật toán A* (để tìm đường ngắn nhất trên đồ thị đường phố) và Genetic Algorithm - GA (để giải bài toán TSP đa điểm dừng). Biên dịch thành file thực thi `router`.
+   - **FastAPI (`backend/api/`):** Đóng vai trò là Web Server. Nhận Request từ Frontend, tiền xử lý tọa độ, gọi C++ Engine qua Subprocess để lấy lộ trình, rồi cộng thêm các trọng số ngoại cảnh (Kẹt xe, ngập lụt) trước khi trả về JSON cho Frontend.
 
-## Quick Sta
-
-Nếu bạn vừa tải (clone) dự án này từ GitHub về, máy bạn sẽ chưa có các file dữ liệu khổng lồ (bản đồ, GTFS, OpenTripPlanner) do chúng đã được loại trừ để tối ưu dung lượng GitHub. Bạn chỉ làm các bước sau để tự động tải dữ liệu:
-
-1. Cài đặt các thư viện Python cần thiết:
-
-```bash
-python -m pip install -r requirements.txt
+Cấu trúc thư mục:
+```text
+chicago_transit/
+├── frontend/               # Giao diện web (HTML/JS/CSS)
+├── backend/                # Toàn bộ mã nguồn xử lý
+│   ├── api/                # FastAPI (Controllers, Models, Services)
+│   ├── algorithms/         # Mã nguồn thuật toán C++ (Astar, GA, main)
+│   ├── scripts/            # Các tập lệnh (Build đồ thị từ bản đồ)
+│   └── server.py           # File chạy web server Uvicorn
+├── data/                   # Chứa file đồ thị (.txt) và dữ liệu tĩnh (.json)
+├── run.py                  # Lệnh khởi động chung
+└── requirements.txt        # Thư viện Python
 ```
 
-2. Chạy thiết lập lần đầu (Hệ thống sẽ TỰ ĐỘNG tải OTP, tải bản đồ Chicago OSM, tải dữ liệu tàu CTA và biên dịch bản đồ giao thông cho bạn - cần Internet và mất vài phút):
+## Hướng dẫn Cài đặt & Chạy
+
+### 1. Cài đặt thư viện Python
+Máy tính của bạn cần cài sẵn Python 3 và trình biên dịch C++ (ví dụ `g++` hoặc `clang++` thường có sẵn trên macOS/Linux). Cài đặt thư viện:
+
+```bash
+pip install -r requirements.txt
+pip install osmnx networkx  # Dùng để trích xuất đồ thị ban đầu
+```
+
+### 2. Biên dịch C++ và Khởi tạo Đồ thị (Chỉ chạy 1 lần)
+Chạy lệnh sau để hệ thống tự động tải dữ liệu bản đồ Chicago, trích xuất đồ thị (`data_graph.txt`) và biên dịch lõi thuật toán C++:
 
 ```bash
 python run.py setup
 ```
+*(Lưu ý: Quá trình trích xuất đồ thị bằng osmnx có thể mất khoảng 1-2 phút tùy tốc độ mạng).*
 
-Sau khi hoàn tất cài đặt, lệnh khởi động/tắt hằng ngày chung cho cả macOS và Windows:
-
-3. Bật hệ thống:
-
-```bash
-python run.py
-```
-
-4. Kiem tra trang thai:
+### 3. Khởi động ứng dụng (Dùng hằng ngày)
+Khởi động máy chủ web:
 
 ```bash
-python run.py status
+python run.py start
 ```
+Truy cập địa chỉ `http://127.0.0.1:8000` trên trình duyệt để sử dụng bản đồ.
 
-5. Tat he thong:
-
-```bash
-python run.py stop
-```
-
-## Cách Dùng
-
-- Mở `http://127.0.0.1:8000`
-- Chọn `Đi bộ + tàu CTA`
-- Chọn giờ khởi hành
-- Ở chế độ `Chọn điểm đầu/cuối`, click 2 điểm nằm trong phạm vi Chicago
-- Nếu cần nhiều điểm dừng, chuyển sang `Thêm điểm dừng`
-- Nếu cần cấm đi qua một đoạn đường, chuyển sang `Vẽ đoạn đường cấm` rồi click 2 điểm để tạo đoạn tránh
-- Chọn `Giữ đúng thứ tự` hoặc `Tối ưu thứ tự` cho các điểm dừng
-- Nhấn `Tính lộ trình tốt nhất`
-- Kết quả sẽ hiển thị tổng thời gian, tổng quãng đường, phần cộng thêm do ùn tắc/thời tiết, các cảnh báo khu vực rủi ro, và chi tiết từng chặng
-
-## API
-
-- `GET /api/meta/boundary`
-- `GET /api/meta/rail`
-- `GET /api/meta/context`
-- `GET /api/route?from=41.88,-87.63&to=41.79,-87.60&profile=walk&depart_at=2026-04-07T09:30`
-- `POST /api/route`
-
-Ví dụ `POST /api/route`:
-
-```json
-{
-  "origin": { "lat": 41.88, "lon": -87.63 },
-  "destination": { "lat": 41.79, "lon": -87.60 },
-  "profile": "walk",
-  "depart_at": "2026-04-07T08:15",
-  "stops": [
-    { "lat": 41.87, "lon": -87.65 },
-    { "lat": 41.84, "lon": -87.67 }
-  ],
-  "stop_order_mode": "optimize",
-  "blocked_segments": [
-    {
-      "start": { "lat": 41.88, "lon": -87.63 },
-      "end": { "lat": 41.881, "lon": -87.631 },
-      "label": "Đoạn đang thi công",
-      "buffer_m": 45
-    }
-  ]
-}
-```
-
-`depart_at` is interpreted as Chicago local time if no timezone offset is supplied.
-
-## Notes
-
-- The app rejects points outside the Chicago boundary.
-- The direct City of Chicago boundary export is blocked from this environment, so `scripts/prepare_assets.py` falls back to a Census-derived Chicago boundary file while preserving the official URL in metadata.
-- `profile=walk` compares `đi bộ toàn tuyến` against `đi bộ + tàu CTA` and picks the faster valid option.
-
-- Contextual scoring uses local static metadata in `data/assets/contextual_factors.json` to model average congestion by time bucket and to warn about flood-prone or snow-prone corridors.
-- `python run.py setup` accepts any `.osm.pbf` placed in `otp/runtime/`; a Chicago-only clip is best, but an Illinois extract also works because the backend rejects routes that leave the Chicago boundary.
+## Các Tính năng Chính
+- Tìm đường đi bộ và đi qua mạng lưới tàu điện CTA.
+- Hỗ trợ tối ưu hóa **Nhiều điểm dừng (Multi-stops)** bằng giải thuật Di truyền (GA).
+- Tự động cảnh báo ngập lụt cục bộ hoặc kẹt xe và cộng thêm thời gian phạt vào lộ trình.
+- Khả năng **Vẽ đoạn đường cấm** trực tiếp trên bản đồ để hệ thống tự tìm đường vòng.

@@ -8,13 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.config import Settings
-from app.models import AdvancedRouteRequest, BoundaryResponse, ContextMetaResponse, RailMetaResponse, RouteResponse
-from app.services.boundary import ChicagoBoundary
-from app.services.contextual_factors import ContextualFactorsStore
-from app.services.otp_client import OTPClient
-from app.services.rail_assets import RailAssetStore
-from app.services.routing import RoutePlanner
+from backend.api.config import Settings
+from backend.api.models import AdvancedRouteRequest, BoundaryResponse, ContextMetaResponse, RailMetaResponse, RouteResponse
+from backend.api.services.boundary import ChicagoBoundary
+from backend.api.services.contextual_factors import ContextualFactorsStore
+from backend.api.services.rail_assets import RailAssetStore
+from backend.api.services.routing import RoutePlanner
 
 
 def _parse_coordinate_pair(value: str) -> tuple[float, float]:
@@ -56,13 +55,16 @@ def create_app(
         boundary=boundary,
         rail_assets=rail_assets,
         contextual_factors=contextual_factors,
-        otp=OTPClient(settings.otp_graphql_url, settings.otp_timeout_sec),
         timezone_name=settings.chicago_timezone,
         otp_first_itineraries=settings.otp_first_itineraries,
         candidate_limit=settings.candidate_limit,
     )
 
-    app = FastAPI(title="Bản đồ tìm đường Chicago", version="1.0.0")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+
+    app = FastAPI(title="Bản đồ tìm đường Chicago", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.boundary = boundary
     app.state.rail_assets = rail_assets
@@ -122,7 +124,7 @@ def create_app(
         except httpx.HTTPError as exc:
             raise HTTPException(
                 status_code=503,
-                detail="Hệ thống tính đường tạm thời chưa sẵn sàng. Hãy bật OTP rồi thử lại.",
+                detail="Hệ thống tính đường tạm thời chưa sẵn sàng.",
             ) from exc
 
     @app.post("/api/route", response_model=RouteResponse)
@@ -156,14 +158,14 @@ def create_app(
         except httpx.HTTPError as exc:
             raise HTTPException(
                 status_code=503,
-                detail="Hệ thống tính đường tạm thời chưa sẵn sàng. Hãy bật OTP rồi thử lại.",
+                detail="Hệ thống tính đường tạm thời chưa sẵn sàng.",
             ) from exc
 
     @app.get("/")
     async def index() -> FileResponse:
-        return FileResponse(settings.static_dir / "index.html")
+        return FileResponse("frontend/index.html")
 
-    app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="static")
+    app.mount("/static", StaticFiles(directory="frontend"), name="static")
     return app
 
 

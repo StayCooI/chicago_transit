@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 
-from app.config import Settings
+from backend.api.config import Settings
 
 def main() -> None:
     settings = Settings.from_env()
@@ -13,7 +13,7 @@ def main() -> None:
             sys.executable,
             "-m",
             "uvicorn",
-            "app.main:app",
+            "backend.api.main:app",
             "--host",
             "0.0.0.0",
             "--port",
