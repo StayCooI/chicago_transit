@@ -30,7 +30,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        base_dir = Path(os.getenv("CHICAGO_ROUTER_BASE_DIR", Path(__file__).resolve().parent.parent)).resolve()
+        base_dir = Path(os.getenv("CHICAGO_ROUTER_BASE_DIR", Path(__file__).resolve().parent.parent.parent)).resolve()
         assets_dir = Path(os.getenv("CHICAGO_ROUTER_ASSETS_DIR", base_dir / "data" / "assets")).resolve()
         otp_runtime_dir = Path(os.getenv("OTP_RUNTIME_DIR", base_dir / "otp" / "runtime")).resolve()
         otp_version = os.getenv("OTP_VERSION", "2.7.0")
