@@ -15,25 +15,11 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parent
-OTP_DIR = ROOT_DIR / "otp"
-OTP_INPUT_DIR = OTP_DIR / "input"
-OTP_RUNTIME_DIR = OTP_DIR / "runtime"
-ASSETS_SCRIPT = ROOT_DIR / "scripts" / "prepare_assets.py"
-OTP_VERSION = os.getenv("OTP_VERSION", "2.7.0")
-OTP_JAR = OTP_DIR / f"otp-shaded-{OTP_VERSION}.jar"
-OTP_DOWNLOAD_URL = f"https://repo1.maven.org/maven2/org/opentripplanner/otp-shaded/{OTP_VERSION}/otp-shaded-{OTP_VERSION}.jar"
-OSM_FILE = OTP_RUNTIME_DIR / "chicago.osm.pbf"
-OSM_DOWNLOAD_URL = "https://download.bbbike.org/osm/bbbike/Chicago/Chicago.osm.pbf"
-OTP_GRAPH = OTP_RUNTIME_DIR / "graph.obj"
-OTP_GTFS_RUNTIME = OTP_RUNTIME_DIR / "cta.gtfs.zip"
-APP_LOG = OTP_RUNTIME_DIR / "app.log"
-OTP_LOG = OTP_RUNTIME_DIR / "otp.log"
-APP_PID = OTP_RUNTIME_DIR / "app.pid"
-OTP_PID = OTP_RUNTIME_DIR / "otp.pid"
-OTP_PORT = int(os.getenv("OTP_PORT", "8080"))
+ASSETS_SCRIPT = ROOT_DIR / "backend" / "scripts" / "prepare_assets.py"
+APP_LOG = ROOT_DIR / "app.log"
+APP_PID = ROOT_DIR / "app.pid"
 APP_PORT = int(os.getenv("PORT", "8000"))
 APP_URL = f"http://127.0.0.1:{APP_PORT}"
-OTP_URL = f"http://127.0.0.1:{OTP_PORT}/graphiql"
 APP_REQUIRED_MODULES = {
     "fastapi": "fastapi",
     "uvicorn": "uvicorn",
@@ -211,7 +197,7 @@ def start() -> None:
         print("Starting web app ...")
         env = os.environ.copy()
         env["PORT"] = str(APP_PORT)
-        start_background([sys.executable, "backend/server.py"], APP_LOG, APP_PID, env=env)
+        start_background([sys.executable, "-m", "backend.server"], APP_LOG, APP_PID, env=env)
         if not wait_for_url(f"{APP_URL}/api/meta/boundary", 30):
             app_tail = tail_file(APP_LOG)
             detail = f"\n\nLast app log lines:\n{app_tail}" if app_tail else ""
@@ -226,12 +212,10 @@ def start() -> None:
 
 def stop() -> None:
     terminate_process(APP_PID)
-    terminate_process(OTP_PID)
-    print("Da tat OTP va web app.")
+    print("Da tat web app.")
 
 
 def status() -> None:
-    print(f"OTP: {'up' if http_ok(OTP_URL) else 'down'} ({OTP_URL})")
     print(f"APP: {'up' if http_ok(f'{APP_URL}/api/meta/boundary') else 'down'} ({APP_URL})")
 
 
