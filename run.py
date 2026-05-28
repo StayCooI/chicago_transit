@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -38,10 +37,6 @@ def run_command(command: list[str], *, cwd: Path | None = None, env: dict[str, s
     subprocess.run(command, cwd=cwd or ROOT_DIR, env=env, check=True)
 
 
-def download_file(url: str, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(url) as response, destination.open("wb") as output:
-        shutil.copyfileobj(response, output)
 
 
 def http_ok(url: str, timeout: float = 2.0) -> bool:
@@ -156,30 +151,6 @@ def ensure_assets() -> None:
     run_command([sys.executable, str(ASSETS_SCRIPT)])
 
 
-def ensure_otp_jar(force: bool = False) -> None:
-    if OTP_JAR.exists() and not force:
-        return
-    print(f"Downloading OTP {OTP_VERSION} ...")
-    download_file(OTP_DOWNLOAD_URL, OTP_JAR)
-
-
-def ensure_osm(force: bool = False) -> None:
-    if OSM_FILE.exists() and not force:
-        return
-    print("Downloading Chicago OSM extract ...")
-    download_file(OSM_DOWNLOAD_URL, OSM_FILE)
-
-
-def pick_gtfs_source() -> Path:
-    official = OTP_INPUT_DIR / "cta-official.gtfs.zip"
-    local = OTP_INPUT_DIR / "cta-local.gtfs.zip"
-    if official.exists():
-        return official
-    if local.exists():
-        return local
-    raise FileNotFoundError("Missing GTFS zip. Run `python run.py setup` first.")
-
-
 def build_cpp_backend() -> None:
     print("Building C++ backend...")
     run_command(["g++", "-std=c++17", "-O3", "backend/Astar.cpp", "backend/GA.cpp", "backend/main.cpp", "-o", "backend/router"])
@@ -187,7 +158,7 @@ def build_cpp_backend() -> None:
         print("Extracting graph data...")
         run_command([sys.executable, "scripts/build_cpp_graph.py"])
 
-def setup(force_download: bool = False, rebuild_graph: bool = False) -> None:
+def setup() -> None:
     ensure_assets()
     build_cpp_backend()
 
@@ -225,10 +196,8 @@ def parse_args() -> argparse.Namespace:
         "command",
         nargs="?",
         default="start",
-        choices=["start", "stop", "status", "setup", "build-graph"],
+        choices=["start", "stop", "status", "setup"],
     )
-    parser.add_argument("--force-download", action="store_true", help="Re-download OTP and OSM files.")
-    parser.add_argument("--rebuild-graph", action="store_true", help="Force rebuilding graph.obj.")
     return parser.parse_args()
 
 
@@ -242,9 +211,7 @@ def main() -> int:
         elif args.command == "status":
             status()
         elif args.command == "setup":
-            setup(force_download=args.force_download, rebuild_graph=args.rebuild_graph)
-        elif args.command == "build-graph":
-            build_graph(force=True if args.rebuild_graph else False)
+            setup()
         else:
             raise ValueError(f"Unknown command: {args.command}")
     except Exception as exc:

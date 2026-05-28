@@ -1,12 +1,9 @@
-INFO:     Started server process [9703]
+INFO:     Started server process [10175]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:62687 - "GET /api/meta/boundary HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62688 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62688 - "GET /api/meta/boundary HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62689 - "GET /api/meta/rail HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62690 - "GET /api/meta/context HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62692 - "POST /api/route HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:62692 - "POST /api/route HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:62692 - "POST /api/route HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:62811 - "GET /api/meta/boundary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62812 - "GET /api/meta/boundary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62813 - "GET /api/meta/rail HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62814 - "GET /api/meta/context HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62815 - "POST /api/route HTTP/1.1" 404 Not Found
