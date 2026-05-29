@@ -189,16 +189,28 @@ class RoutePlanner:
         for stop in stops:
             input_data += f"{stop[0]} {stop[1]}\n"
         
+        optimize_flag = 1 if stop_order_mode == "optimize" else 0
+        input_data += f"{optimize_flag}\n"
+        
         input_data += f"{len(blocked_roads)}\n"
         for br in blocked_roads:
             input_data += f"{br.start[0]} {br.start[1]} {br.end[0]} {br.end[1]} {br.buffer_m}\n"
             
+        import subprocess
+        result = subprocess.run(
+            [executable, graph_file],
+            input=input_data.encode(),
+            capture_output=True,
+            check=False
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Lỗi từ thuật toán C++: {result.stderr.decode()}")
+
         try:
-            result = subprocess.run([executable, graph_file], input=input_data, text=True, capture_output=True, check=True)
-            output = result.stdout
-            data = json.loads(output)
-        except Exception as e:
-            raise RuntimeError(f"Lỗi khi gọi C++ router: {e}")
+            data = json.loads(result.stdout.decode())
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Lỗi khi gọi C++ router: {e}\nSTDOUT: {result.stdout.decode()}\nSTDERR: {result.stderr.decode()}")
             
         if "error" in data:
             raise RuntimeError(data["error"])
@@ -207,6 +219,7 @@ class RoutePlanner:
         path_nodes = data.get("path", [])
         total_time = data.get("total_time", 0.0)
         total_dist = data.get("total_distance", 0.0)
+        stop_order_indices = data.get("stop_order_indices", [])
         
         if path_nodes:
             import math
@@ -357,7 +370,7 @@ class RoutePlanner:
             arrive_at=depart_local + timedelta(seconds=total_time),
             warnings=[],
             stop_order_mode=stop_order_mode,
-            stop_order_indices=[],
+            stop_order_indices=stop_order_indices,
             blocked_segment_count=len(blocked_roads)
         )
         self._apply_context(candidate)

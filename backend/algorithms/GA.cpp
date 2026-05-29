@@ -5,13 +5,24 @@
 
 using namespace std;
 
-// Compute fitness for an individual
-double computeFitness(const vector<int>& gene, const vector<vector<double>>& distMatrix) {
-    double totalDist = 0;
+// Compute fitness for an individual (Total Time including S and T)
+double computeFitness(const vector<int>& gene, const vector<vector<double>>& timeMatrix) {
+    if (gene.empty()) return 0.0;
+    int n_all = (int)timeMatrix.size();
+    int target_idx = n_all - 1;
+    
+    double totalTime = 0;
+    // S -> first stop
+    totalTime += timeMatrix[0][gene[0] + 1];
+    
     for (size_t i = 0; i < gene.size() - 1; ++i) {
-        totalDist += distMatrix[gene[i]][gene[i+1]];
+        totalTime += timeMatrix[gene[i] + 1][gene[i+1] + 1];
     }
-    return totalDist;
+    
+    // last stop -> T
+    totalTime += timeMatrix[gene.back() + 1][target_idx];
+    
+    return totalTime;
 }
 
 // Order Crossover (OX)
@@ -65,11 +76,10 @@ void mutate(Individual& ind, double mutationRate, mt19937& rng) {
     }
 }
 
-vector<int> solveTSP_GA(const vector<vector<double>>& distMatrix, int numGenerations, int popSize) {
-    int n = distMatrix.size();
+vector<int> solveTSP_GA(const vector<vector<double>>& timeMatrix, int num_stops, int numGenerations, int popSize) {
     vector<int> bestSequence;
-    if (n <= 2) {
-        for(int i=0; i<n; ++i) bestSequence.push_back(i);
+    if (num_stops <= 2) {
+        for(int i=0; i<num_stops; ++i) bestSequence.push_back(i);
         return bestSequence;
     }
 
@@ -78,14 +88,10 @@ vector<int> solveTSP_GA(const vector<vector<double>>& distMatrix, int numGenerat
 
     vector<Individual> population(popSize);
     for (int i = 0; i < popSize; ++i) {
-        population[i].gene.resize(n);
-        for (int j = 0; j < n; ++j) population[i].gene[j] = j;
-        // Keep start and end fixed? The requirement doesn't state it, 
-        // assuming TSP needs all points, and start/end are fixed externally. 
-        // Wait, if it's a path through stops, the order of intermediate stops matters. 
-        // Here, the distMatrix covers ONLY the intermediate stops! So any permutation is valid.
+        population[i].gene.resize(num_stops);
+        for (int j = 0; j < num_stops; ++j) population[i].gene[j] = j;
         shuffle(population[i].gene.begin(), population[i].gene.end(), rng);
-        population[i].fitness = computeFitness(population[i].gene, distMatrix);
+        population[i].fitness = computeFitness(population[i].gene, timeMatrix);
     }
 
     double mutationRate = 0.1;
@@ -102,12 +108,12 @@ vector<int> solveTSP_GA(const vector<vector<double>>& distMatrix, int numGenerat
         }
 
         uniform_int_distribution<int> parentDist(0, popSize / 2);
-        while (newPop.size() < popSize) {
+        while ((int)newPop.size() < popSize) {
             Individual p1 = population[parentDist(rng)];
             Individual p2 = population[parentDist(rng)];
             Individual child = crossoverOX(p1, p2, rng);
             mutate(child, mutationRate, rng);
-            child.fitness = computeFitness(child.gene, distMatrix);
+            child.fitness = computeFitness(child.gene, timeMatrix);
             newPop.push_back(child);
         }
         population = newPop;

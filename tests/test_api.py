@@ -4,8 +4,8 @@ from datetime import datetime
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
-from app.models import Coordinate, RouteContext, RouteResponse, RouteSegment, RouteSummary, RouteTotals
+from backend.api.main import create_app
+from backend.api.models import Coordinate, RouteContext, RouteResponse, RouteSegment, RouteSummary, RouteTotals
 
 
 class FakeBoundary:

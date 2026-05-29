@@ -35,7 +35,7 @@ def fetch_json(url: str) -> dict[str, Any]:
 
 def ensure_dirs() -> None:
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    OTP_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def normalize_boundary(raw: dict[str, Any], source_label: str) -> dict[str, Any]:
