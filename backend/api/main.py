@@ -57,7 +57,6 @@ def create_app(
         rail_assets=rail_assets,
         contextual_factors=contextual_factors,
         timezone_name=settings.chicago_timezone,
-        otp_first_itineraries=settings.otp_first_itineraries,
         candidate_limit=settings.candidate_limit,
     )
 

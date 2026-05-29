@@ -23,3 +23,9 @@ otp/input/*.zip
 # Data / GTFS files (quá nặng để up GitHub)
 data/*.txt
 data/*.htm
+
+# Runtime files
+app.log
+app.pid
+cache/
+backend/router

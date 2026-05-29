@@ -15,10 +15,10 @@ from typing import Any
 
 from shapely.geometry import LineString, Point, mapping, shape
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = ROOT / "data"
 ASSETS_DIR = DATA_DIR / "assets"
-OTP_INPUT_DIR = ROOT / "otp" / "input"
+RAW_DIR = DATA_DIR / "raw"
 
 OFFICIAL_BOUNDARY_URL = "https://data.cityofchicago.org/api/views/qqq8-j68g/rows.json?accessType=DOWNLOAD"
 FALLBACK_BOUNDARY_URL = "https://raw.githubusercontent.com/generalpiston/geojson-us-city-boundaries/master/cities/il/chicago.json"
@@ -192,15 +192,9 @@ def build_rail_assets(boundary_geometry) -> None:
 
 
 
-def build_local_gtfs_zip() -> None:
-    output_path = OTP_INPUT_DIR / "cta-local.gtfs.zip"
-    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
-        for txt_file in sorted(DATA_DIR.glob("*.txt")):
-            zip_file.write(txt_file, arcname=txt_file.name)
-
-
 def download_official_gtfs() -> None:
-    output_path = OTP_INPUT_DIR / "cta-official.gtfs.zip"
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = RAW_DIR / "cta-official.gtfs.zip"
     request = urllib.request.Request(OFFICIAL_GTFS_URL, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(request, timeout=60) as response:
         output_path.write_bytes(response.read())
@@ -210,7 +204,7 @@ def ensure_gtfs_extracted() -> str:
     if (DATA_DIR / "routes.txt").exists():
         return "used existing local GTFS text files"
     
-    official_zip = OTP_INPUT_DIR / "cta-official.gtfs.zip"
+    official_zip = RAW_DIR / "cta-official.gtfs.zip"
     if not official_zip.exists():
         print("GTFS data missing. Downloading from official CTA source...")
         download_official_gtfs()
@@ -232,7 +226,6 @@ def main() -> int:
         return 1
 
     build_rail_assets(boundary_geometry)
-    build_local_gtfs_zip()
 
     print(f"Boundary bbox: {shape(boundary_geojson['features'][0]['geometry']).bounds}")
     print(f"Assets written to {ASSETS_DIR}")

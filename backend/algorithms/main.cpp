@@ -30,6 +30,17 @@ int main(int argc, char** argv) {
         cin >> stops[i].first >> stops[i].second;
     }
 
+    int num_blocked;
+    if (!(cin >> num_blocked)) return 0;
+
+    vector<BlockedSegment> blocked_segments(num_blocked);
+    for (int i = 0; i < num_blocked; ++i) {
+        cin >> blocked_segments[i].lat1 >> blocked_segments[i].lon1
+            >> blocked_segments[i].lat2 >> blocked_segments[i].lon2
+            >> blocked_segments[i].buffer_m;
+    }
+    graph.applyBlockedSegments(blocked_segments);
+
     int start_node = graph.findNearestNode(s_lat, s_lon);
     int target_node = graph.findNearestNode(t_lat, t_lon);
 
@@ -45,10 +56,13 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        cout << "{\"total_cost\": " << res.total_cost << ", \"path\": [";
+        cout << "{\"total_time\": " << res.total_time 
+             << ", \"total_distance\": " << res.total_distance 
+             << ", \"path\": [";
         for (size_t i = 0; i < res.path.size(); ++i) {
-            const auto& node = graph.nodes[res.path[i]];
-            cout << "{\"lat\": " << node.lat << ", \"lon\": " << node.lon << "}";
+            const auto& step = res.path[i];
+            const auto& node = graph.nodes[step.node_id];
+            cout << "{\"lat\": " << node.lat << ", \"lon\": " << node.lon << ", \"type\": " << step.type_from_prev << "}";
             if (i < res.path.size() - 1) cout << ",";
         }
         cout << "]}" << endl;
@@ -77,8 +91,9 @@ int main(int argc, char** argv) {
     for (int i = 0; i < n_all; ++i) {
         for (int j = 0; j < n_all; ++j) {
             if (i == j) {
-                allPairs[i][j].total_cost = 0;
-                allPairs[i][j].path = {all_nodes[i]};
+                allPairs[i][j].total_time = 0;
+                allPairs[i][j].total_distance = 0;
+                allPairs[i][j].path = {{all_nodes[i], -1, 0.0}};
             } else {
                 allPairs[i][j] = findPathAStar(graph, all_nodes[i], all_nodes[j]);
             }
@@ -98,11 +113,11 @@ int main(int argc, char** argv) {
         vector<int> perm(num_stops);
         for(int i=0; i<num_stops; ++i) perm[i] = i;
         do {
-            double cost = allPairs[0][perm[0] + 1].total_cost;
+            double cost = allPairs[0][perm[0] + 1].total_time;
             for(int i=0; i<num_stops-1; ++i) {
-                cost += allPairs[perm[i] + 1][perm[i+1] + 1].total_cost;
+                cost += allPairs[perm[i] + 1][perm[i+1] + 1].total_time;
             }
-            cost += allPairs[perm[num_stops-1] + 1][n_all-1].total_cost;
+            cost += allPairs[perm[num_stops-1] + 1][n_all-1].total_time;
             
             if (cost < best_cost) {
                 best_cost = cost;
@@ -110,8 +125,7 @@ int main(int argc, char** argv) {
             }
         } while(next_permutation(perm.begin(), perm.end()));
     } else {
-        // Fallback to greedy for simplicity here, as full GA wrapper for S-T needs slightly different interface.
-        // I will just use nearest neighbor.
+        // Fallback to greedy
         vector<bool> visited(num_stops, false);
         int current = 0; // S
         for(int step=0; step<num_stops; ++step) {
@@ -119,8 +133,8 @@ int main(int argc, char** argv) {
             double min_d = numeric_limits<double>::infinity();
             for(int i=0; i<num_stops; ++i) {
                 if(!visited[i]) {
-                    if(allPairs[current][i+1].total_cost < min_d) {
-                        min_d = allPairs[current][i+1].total_cost;
+                    if(allPairs[current][i+1].total_time < min_d) {
+                        min_d = allPairs[current][i+1].total_time;
                         best_next = i;
                     }
                 }
@@ -130,17 +144,25 @@ int main(int argc, char** argv) {
             current = best_next + 1;
         }
         
-        best_cost = allPairs[0][best_order[0] + 1].total_cost;
+        best_cost = allPairs[0][best_order[0] + 1].total_time;
         for(int i=0; i<num_stops-1; ++i) {
-            best_cost += allPairs[best_order[i] + 1][best_order[i+1] + 1].total_cost;
+            best_cost += allPairs[best_order[i] + 1][best_order[i+1] + 1].total_time;
         }
-        best_cost += allPairs[best_order[num_stops-1] + 1][n_all-1].total_cost;
+        best_cost += allPairs[best_order[num_stops-1] + 1][n_all-1].total_time;
     }
 
-    cout << "{\"total_cost\": " << best_cost << ", \"path\": [";
+    // Calculate total distance for the stitched path
+    double total_distance = 0;
+    total_distance += allPairs[0][best_order[0] + 1].total_distance;
+    for(int i=0; i<num_stops-1; ++i) {
+        total_distance += allPairs[best_order[i] + 1][best_order[i+1] + 1].total_distance;
+    }
+    total_distance += allPairs[best_order[num_stops-1] + 1][n_all-1].total_distance;
+
+    cout << "{\"total_time\": " << best_cost << ", \"total_distance\": " << total_distance << ", \"path\": [";
     
     // Stitch path
-    vector<int> full_path;
+    vector<PathStep> full_path;
     int curr = 0;
     for(int stop_idx : best_order) {
         int nxt = stop_idx + 1;
@@ -154,8 +176,9 @@ int main(int argc, char** argv) {
     else full_path.insert(full_path.end(), p_end.begin() + 1, p_end.end());
 
     for (size_t i = 0; i < full_path.size(); ++i) {
-        const auto& node = graph.nodes[full_path[i]];
-        cout << "{\"lat\": " << node.lat << ", \"lon\": " << node.lon << "}";
+        const auto& step = full_path[i];
+        const auto& node = graph.nodes[step.node_id];
+        cout << "{\"lat\": " << node.lat << ", \"lon\": " << node.lon << ", \"type\": " << step.type_from_prev << "}";
         if (i < full_path.size() - 1) cout << ",";
     }
     cout << "]}" << endl;

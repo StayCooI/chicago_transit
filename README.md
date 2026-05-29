@@ -1,14 +1,12 @@
 # Chicago Route Planner
 
-Ứng dụng bản đồ hướng dẫn chỉ đường khu vực Chicago, được xây dựng với cấu trúc **100% tự code thuật toán** (A* và Genetic Algorithm) bằng **C++ Backend** để đạt hiệu năng tối ưu, kết hợp với **FastAPI** phục vụ dữ liệu và giao diện web.
+Ứng dụng bản đồ hướng dẫn chỉ đường khu vực Chicago, hỗ trợ tìm đường đi bộ và hệ thống tàu điện CTA.
 
 ## Kiến trúc Hệ thống
 
 Dự án được chia thành 2 thành phần chính:
-1. **Frontend (Giao diện Web):** Nằm trong thư mục `frontend/`. Chứa các file HTML/CSS/JS (sử dụng thư viện Leaflet.js) để hiển thị bản đồ trực quan, tiếp nhận thao tác của người dùng.
-2. **Backend (API & Thuật toán):**
-   - **Lõi C++ (`backend/algorithms/`):** Tự triển khai thuật toán A* (để tìm đường ngắn nhất trên đồ thị đường phố) và Genetic Algorithm - GA (để giải bài toán TSP đa điểm dừng). Biên dịch thành file thực thi `router`.
-   - **FastAPI (`backend/api/`):** Đóng vai trò là Web Server. Nhận Request từ Frontend, tiền xử lý tọa độ, gọi C++ Engine qua Subprocess để lấy lộ trình, rồi cộng thêm các trọng số ngoại cảnh (Kẹt xe, ngập lụt) trước khi trả về JSON cho Frontend.
+1. **Frontend:** Nằm trong thư mục `frontend/`. Giao diện web hiển thị bản đồ trực quan.
+2. **Backend:** Nằm trong thư mục `backend/`. Web server bằng FastAPI làm nhiệm vụ xử lý logic, tính toán đường đi ngắn nhất bằng thuật toán A* và tối ưu đa điểm dừng bằng thuật toán Di truyền (GA).
 
 Cấu trúc thư mục:
 ```text

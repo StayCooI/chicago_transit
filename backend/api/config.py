@@ -14,26 +14,18 @@ class Settings:
     rail_lines_asset: Path
     rail_stations_asset: Path
     contextual_factors_asset: Path
-    otp_graphql_url: str
-    otp_timeout_sec: float
     chicago_timezone: str
     candidate_limit: int
-    otp_first_itineraries: int
     serve_port: int
     official_boundary_url: str
     boundary_fallback_url: str
     official_gtfs_url: str
     osm_extract_url: str
-    otp_version: str
-    otp_jar_path: Path
-    otp_runtime_dir: Path
 
     @classmethod
     def from_env(cls) -> "Settings":
         base_dir = Path(os.getenv("CHICAGO_ROUTER_BASE_DIR", Path(__file__).resolve().parent.parent.parent)).resolve()
         assets_dir = Path(os.getenv("CHICAGO_ROUTER_ASSETS_DIR", base_dir / "data" / "assets")).resolve()
-        otp_runtime_dir = Path(os.getenv("OTP_RUNTIME_DIR", base_dir / "otp" / "runtime")).resolve()
-        otp_version = os.getenv("OTP_VERSION", "2.7.0")
         return cls(
             base_dir=base_dir,
             static_dir=Path(os.getenv("CHICAGO_ROUTER_STATIC_DIR", base_dir / "static")).resolve(),
@@ -44,11 +36,8 @@ class Settings:
             contextual_factors_asset=Path(
                 os.getenv("CHICAGO_ROUTER_CONTEXTUAL_FACTORS_ASSET", assets_dir / "contextual_factors.json")
             ).resolve(),
-            otp_graphql_url=os.getenv("OTP_GRAPHQL_URL", "http://127.0.0.1:8080/otp/gtfs/v1"),
-            otp_timeout_sec=float(os.getenv("OTP_TIMEOUT_SEC", "20")),
             chicago_timezone=os.getenv("CHICAGO_TIMEZONE", "America/Chicago"),
             candidate_limit=int(os.getenv("ROUTE_CANDIDATE_LIMIT", "3")),
-            otp_first_itineraries=int(os.getenv("OTP_FIRST_ITINERARIES", "3")),
             serve_port=int(os.getenv("PORT", "8000")),
             official_boundary_url=os.getenv(
                 "OFFICIAL_CHICAGO_BOUNDARY_URL",
@@ -63,7 +52,4 @@ class Settings:
                 "CHICAGO_OSM_EXTRACT_URL",
                 "https://download.geofabrik.de/north-america/us/illinois-latest.osm.pbf",
             ),
-            otp_version=otp_version,
-            otp_jar_path=Path(os.getenv("OTP_JAR_PATH", base_dir / "otp" / f"otp-shaded-{otp_version}.jar")).resolve(),
-            otp_runtime_dir=otp_runtime_dir,
         )

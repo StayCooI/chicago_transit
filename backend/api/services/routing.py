@@ -148,7 +148,6 @@ class RoutePlanner:
     boundary: ChicagoBoundary
     rail_assets: RailAssetStore
     timezone_name: str
-    otp_first_itineraries: int
     candidate_limit: int
     contextual_factors: ContextualFactorsStore | NullContextualFactors = field(default_factory=NullContextualFactors)
 
@@ -180,15 +179,19 @@ class RoutePlanner:
         import json
         from pathlib import Path
         from datetime import timedelta
-        
-        ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
-        executable = str(ROOT_DIR / "backend" / "router")
-        graph_file = str(ROOT_DIR / "data" / "assets" / "data_graph.txt")
+        from backend.api.config import Settings
+        settings = Settings.from_env()
+        executable = str(Path("backend/router").resolve())
+        graph_file = str(settings.assets_dir / "data_graph.txt")
         
         input_data = f"{origin[0]} {origin[1]} {destination[0]} {destination[1]}\n"
         input_data += f"{len(stops)}\n"
         for stop in stops:
             input_data += f"{stop[0]} {stop[1]}\n"
+        
+        input_data += f"{len(blocked_roads)}\n"
+        for br in blocked_roads:
+            input_data += f"{br.start[0]} {br.start[1]} {br.end[0]} {br.end[1]} {br.buffer_m}\n"
             
         try:
             result = subprocess.run([executable, graph_file], input=input_data, text=True, capture_output=True, check=True)
@@ -202,26 +205,157 @@ class RoutePlanner:
             
         segments = []
         path_nodes = data.get("path", [])
-        total_dist = data.get("total_cost", 0.0)
+        total_time = data.get("total_time", 0.0)
+        total_dist = data.get("total_distance", 0.0)
         
         if path_nodes:
-            coords = [(pt["lon"], pt["lat"]) for pt in path_nodes]
-            segment = RouteSegment(
-                kind="walk",
-                distance_m=total_dist,
-                duration_sec=total_dist / 1.3,
-                geometry={"type": "LineString", "coordinates": coords},
-                instruction="Đi theo lộ trình (A* & GA) tự code bằng C++."
-            )
-            segments.append(segment)
+            import math
+            import json
+            
+            stations_file = settings.assets_dir / "cta_rail_stations.json"
+            stations_data = []
+            if stations_file.exists():
+                with open(stations_file, "r", encoding="utf-8") as f:
+                    stations_data = json.load(f)
+                    
+            def haversine(lat1, lon1, lat2, lon2):
+                R = 6371000
+                p1, p2 = math.radians(lat1), math.radians(lat2)
+                dp = math.radians(lat2 - lat1)
+                dl = math.radians(lon2 - lon1)
+                a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+                return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+                
+            def get_station_info(lat, lon):
+                min_d = float('inf')
+                best_st = None
+                for st in stations_data:
+                    d = haversine(lat, lon, st["lat"], st["lon"])
+                    if d < min_d:
+                        min_d = d
+                        best_st = st
+                return best_st if min_d < 100 else None
+                
+            current_type = path_nodes[0].get("type", 0) if len(path_nodes) > 0 else 0
+            if current_type == -1: current_type = 0
+            
+            current_coords = [(origin[1], origin[0])]
+            
+            for pt in path_nodes:
+                pt_type = pt.get("type", current_type)
+                if pt_type == -1: pt_type = current_type
+                
+                if pt_type != current_type and len(current_coords) > 0:
+                    # Chốt segment cũ
+                    dist = sum(haversine(current_coords[i][1], current_coords[i][0], current_coords[i+1][1], current_coords[i+1][0]) for i in range(len(current_coords)-1))
+                    kind = "rail" if current_type >= 1 else "walk"
+                    dur = int(dist / 15.0) if kind == "rail" else int(dist / 1.3)
+                    if kind == "rail":
+                        stations_passed = sum(1 for lon, lat in current_coords if get_station_info(lat, lon))
+                        if stations_passed > 1:
+                            dur += (stations_passed - 1) * 30
+                    
+                    current_depart = depart_local if not segments else segments[-1].arrival_time
+                    current_arrive = current_depart + timedelta(seconds=dur)
+                    
+                    def find_station_in_coords(coords, reverse=False):
+                        it = reversed(coords) if reverse else coords
+                        for lon, lat in it:
+                            st = get_station_info(lat, lon)
+                            if st: return st
+                        return None
+                        
+                    st_start = find_station_in_coords(current_coords) if kind == "rail" else None
+                    st_end = find_station_in_coords(current_coords, reverse=True) if kind == "rail" else None
+                    
+                    from_name = "Điểm khởi hành" if len(segments) == 0 else (f"Ga {st_start['stop_name']}" if st_start else "Trạm/Điểm chuyển tiếp")
+                    to_name = f"Ga {st_end['stop_name']}" if st_end else "Trạm/Điểm chuyển tiếp"
+                    
+                    line_name = None
+                    line_color = None
+                    if kind == "rail" and st_start and st_end:
+                        common_routes = set(st_start.get("routes", [])) & set(st_end.get("routes", []))
+                        if common_routes:
+                            route_id = list(common_routes)[0]
+                            line_name = localized_line_name(route_id, f"Tuyến {route_id}")
+                            line_color = st_start.get("route_colors", {}).get(route_id, "#C60C30")
+                    
+                    segments.append(RouteSegment(
+                        kind=kind, distance_m=dist, duration_sec=dur,
+                        geometry={"type": "LineString", "coordinates": current_coords},
+                        start={"lat": current_coords[0][1], "lon": current_coords[0][0]},
+                        end={"lat": current_coords[-1][1], "lon": current_coords[-1][0]},
+                        departure_time=current_depart,
+                        arrival_time=current_arrive,
+                        from_name=from_name,
+                        to_name=to_name,
+                        line_name=line_name,
+                        line_color=line_color
+                    ))
+                    
+                    # Bắt đầu segment mới với điểm cuối của segment cũ và điểm hiện tại
+                    current_coords = [current_coords[-1], (pt["lon"], pt["lat"])]
+                    current_type = pt_type
+                else:
+                    current_coords.append((pt["lon"], pt["lat"]))
+            
+            if current_coords[-1] != (destination[1], destination[0]):
+                current_coords.append((destination[1], destination[0]))
+                
+            if len(current_coords) > 1:
+                dist = sum(haversine(current_coords[i][1], current_coords[i][0], current_coords[i+1][1], current_coords[i+1][0]) for i in range(len(current_coords)-1))
+                kind = "rail" if current_type >= 1 else "walk"
+                dur = int(dist / 15.0) if kind == "rail" else int(dist / 1.3)
+                if kind == "rail":
+                    stations_passed = sum(1 for lon, lat in current_coords if get_station_info(lat, lon))
+                    if stations_passed > 1:
+                        dur += (stations_passed - 1) * 30
+                
+                current_depart = depart_local if not segments else segments[-1].arrival_time
+                current_arrive = current_depart + timedelta(seconds=dur)
+                
+                def find_station_in_coords(coords, reverse=False):
+                    it = reversed(coords) if reverse else coords
+                    for lon, lat in it:
+                        st = get_station_info(lat, lon)
+                        if st: return st
+                    return None
+                    
+                st_start = find_station_in_coords(current_coords) if kind == "rail" else None
+                st_end = find_station_in_coords(current_coords, reverse=True) if kind == "rail" else None
+                
+                from_name = "Điểm khởi hành" if len(segments) == 0 else (f"Ga {st_start['stop_name']}" if st_start else "Trạm/Điểm chuyển tiếp")
+                to_name = "Điểm kết thúc"
+                
+                line_name = None
+                line_color = None
+                if kind == "rail" and st_start and st_end:
+                    common_routes = set(st_start.get("routes", [])) & set(st_end.get("routes", []))
+                    if common_routes:
+                        route_id = list(common_routes)[0]
+                        line_name = localized_line_name(route_id, f"Tuyến {route_id}")
+                        line_color = st_start.get("route_colors", {}).get(route_id, "#C60C30")
+                
+                segments.append(RouteSegment(
+                    kind=kind, distance_m=dist, duration_sec=dur,
+                    geometry={"type": "LineString", "coordinates": current_coords},
+                    start={"lat": current_coords[0][1], "lon": current_coords[0][0]},
+                    end={"lat": current_coords[-1][1], "lon": current_coords[-1][0]},
+                    departure_time=current_depart,
+                    arrival_time=current_arrive,
+                    from_name=from_name,
+                    to_name=to_name,
+                    line_name=line_name,
+                    line_color=line_color
+                ))
             
         candidate = Candidate(
             profile=profile,
-            strategy="walk",
+            strategy="walk_only" if profile == "walk" else "walk_rail",
             segments=segments,
             depart_at=depart_local,
-            arrive_at=depart_local + timedelta(seconds=total_dist / 1.3),
-            warnings=["Lộ trình được tính toán bằng thuật toán A* và GA tự code (C++)!"],
+            arrive_at=depart_local + timedelta(seconds=total_time),
+            warnings=[],
             stop_order_mode=stop_order_mode,
             stop_order_indices=[],
             blocked_segment_count=len(blocked_roads)

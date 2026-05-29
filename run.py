@@ -153,10 +153,10 @@ def ensure_assets() -> None:
 
 def build_cpp_backend() -> None:
     print("Building C++ backend...")
-    run_command(["g++", "-std=c++17", "-O3", "backend/Astar.cpp", "backend/GA.cpp", "backend/main.cpp", "-o", "backend/router"])
+    run_command(["g++", "-std=c++17", "-O3", "backend/algorithms/Astar.cpp", "backend/algorithms/GA.cpp", "backend/algorithms/main.cpp", "-o", "backend/router"])
     if not (ROOT_DIR / "data" / "assets" / "data_graph.txt").exists():
         print("Extracting graph data...")
-        run_command([sys.executable, "scripts/build_cpp_graph.py"])
+        run_command([sys.executable, "backend/scripts/build_cpp_graph.py"])
 
 def setup() -> None:
     ensure_assets()
