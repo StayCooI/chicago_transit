@@ -33,6 +33,8 @@ def build_graph():
     # Trong môi trường thực tế, nếu RAM lớn có thể đổi thành 'all'.
     place_name = "Chicago, Illinois, USA"
     G = ox.graph_from_place(place_name, network_type='drive', simplify=False)
+    print("Đang lọc thành phần liên thông mạnh lớn nhất để đảm bảo luôn có đường đi...")
+    G = ox.truncate.largest_component(G, strongly=True)
     
     # Lấy thông tin các node và edge
     nodes = list(G.nodes(data=True))
